@@ -3,6 +3,7 @@
 
 import json
 import logging
+import lzma
 import os
 import socket
 import struct
@@ -58,6 +59,14 @@ def get_args():
     parser.add_argument("--report-path",
                         help="Directory where report files are saved.",
                         default="reports")
+    parser.add_argument('--arch',
+                        help="Android emulator architecture. Default: x86",
+                        default='x86',
+                        choices=('arm', 'arm64', 'x86', 'x86_64'))
+    parser.add_argument("-fv", "--frida-version",
+                        help=("Specify which frida version to use."
+                              "Note: must match python package version."),
+                        default="12.4.4")
     parser.add_argument("-s", "--script",
                         help="Script to execute.",
                         default="open.js")
@@ -97,9 +106,8 @@ def setup_logging(args, log):
     else:
         log.setLevel(logging.INFO)
 
-    logging.getLogger("peewee").setLevel(logging.INFO)
+    # Define log level for dependency modules
     logging.getLogger("requests").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.ERROR)
 
     # Redirect messages lower than WARNING to stdout
     stdout_hdlr = logging.StreamHandler(sys.stdout)
@@ -115,6 +123,22 @@ def setup_logging(args, log):
 
     log.addHandler(stdout_hdlr)
     log.addHandler(stderr_hdlr)
+
+def setup_frida(target_version):
+    try:
+        import frida
+        frida_version = frida.__version__
+        log.debug("Found frida python package installed: %s", frida_version)
+        if frida_version != target_version:
+            log.critical("Found conflicting frida versions: "
+                         "%s (python package), %s (frida-server).",
+                         frida_version, target_version)
+            log.critical("Run: pip install -r requirements.txt --upgrade")
+            sys.exit(1)
+    except ImportError as e:
+        log.critical("Unable to find frida python package installed.")
+        log.critical("Run: pip install -r requirements.txt --upgrade")
+        sys.exit(1)
 
 
 def load_file(path, filename):
@@ -140,6 +164,9 @@ def download_file(url, output_path, chunk_size=8192):
     filename = url.split("/")[-1]
     file_path = os.path.join(output_path, filename)
 
+    if os.path.isfile(file_path):
+        return filename
+
     # Use stream=True parameter to enable chunked file download
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
@@ -147,7 +174,6 @@ def download_file(url, output_path, chunk_size=8192):
         total_bytes = int(r.headers["content-length"])
         downloaded_bytes = 0
 
-        # TODO: check if the file already exists
         with open(file_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=chunk_size):
                 if not chunk:
@@ -166,6 +192,21 @@ def download_file(url, output_path, chunk_size=8192):
     return filename
 
 
-def download_json(url):
+def get_json(url):
     r = requests.get(url)
     return r.json()
+
+def extract_xz(path, filename):
+    input_path = os.path.join(path, filename)
+
+    extracted_filename = os.path.splitext(filename)[0]
+    output_path = os.path.join(path, extracted_filename)
+
+    if os.path.isfile(output_path):
+        return extracted_filename
+
+    with lzma.open(input_path) as f, open(output_path, "wb") as fout:
+        data = f.read()
+        fout.write(data)
+
+    return extracted_filename
