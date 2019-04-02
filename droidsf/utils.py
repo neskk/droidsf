@@ -60,7 +60,7 @@ def get_args():
                         help="Directory where report files are saved.",
                         default="reports")
     parser.add_argument('--arch',
-                        help="Android emulator architecture. Default: x86",
+                        help="Android device architecture. Default: x86",
                         default='x86',
                         choices=('arm', 'arm64', 'x86', 'x86_64'))
     parser.add_argument("-fv", "--frida-version",

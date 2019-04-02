@@ -14,11 +14,17 @@ import droidsf.utils
 log = logging.getLogger('droidsf')
 
 def on_message(message, data):
-    log.info("Received message: %s", message)
-    log.info("Received data: %s", data)
+    # log.info("Received message: %s", message)
+    # log.info("Received data: %s", data)
 
+    if message['type'] == 'error':
+        log.error(message['stack'])
+    elif message['type'] == 'send':
+        log.info(message['payload'])
+    else:
+        log.warning(message)
 
-def adb_setup_frida(args):
+def adb_launch_frida(args):
     frida_server = "frida-server-" + args.frida_version + "-android-" + args.arch
     frida_server_path = os.path.join(args.download_path, frida_server)
 
@@ -29,16 +35,16 @@ def adb_setup_frida(args):
     adb = subprocess.Popen(["adb", "root"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     out, err = adb.communicate()
     if err:
-        log.debug(err)
+        log.info(err)
     if out:
-        log.debug(out)
+        log.info(out)
 
     adb = subprocess.Popen(["adb", "push", frida_server_path, "/data/local/tmp/frida-server"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     out, err = adb.communicate()
     if err:
         log.error(err)
     else:
-        log.info("Pushed frida-server to device.")
+        log.info("Pushed frida-server to device:\n%s", out)
 
     adb = subprocess.Popen(["adb", "shell"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
@@ -55,12 +61,19 @@ def adb_setup_frida(args):
         log.info("Launched frida-server on device.")
         adb.kill()
         log.debug("Killed adb shell process.")
-        return True
+        time.sleep(3)
     else:
         log.critical("Unable to launch frida-server on device.")
         sys.exit(1)
 
-    return False
+
+def adb_kill_frida():
+    adb = subprocess.Popen(["adb", "shell"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    out, err = adb.communicate("killall -s SIGKILL frida-server frida-helper-32", timeout=3)
+    if err:
+        log.info(err)
+    if out:
+        log.info(out)
 
 
 if __name__ == '__main__':
@@ -72,18 +85,24 @@ if __name__ == '__main__':
 
     droidsf.utils.setup_frida(args.frida_version)
 
-    adb = adb_setup_frida(args)
+    adb = adb_launch_frida(args)
 
+    log.debug("Frida found devices: %s", frida.enumerate_devices())
     cwd = os.path.dirname(os.path.realpath(__file__))
-    device = frida.get_usb_device()
+    device = frida.get_usb_device(timeout=5)
     log.info("Frida found USB device!")
+    log.debug("Frida found applications: %s", device.enumerate_applications())
     pid = device.spawn([args.app])
-    device.resume(pid)
-    time.sleep(1)  # Without it Java.perform silently fails
+    log.info("Frida spawned application: %s (PID: %s).", args.app, pid)
     session = device.attach(pid)
-
     log.info("Frida attached to %s (PID: %s).", args.app, pid)
-    sys.exit(0)
+    ss = '''
+send("hello")
+'''
+    script = session.create_script(ss)
+    script.on('message', on_message)
+    script.load()
+
     # with open("change_method.js") as f:
     # with open("instance.js") as f:
     # with open("brutal.js") as f:
@@ -91,11 +110,20 @@ if __name__ == '__main__':
     # with open("security.js") as f:
     # with open("some_class.js") as f:
     # with open("debug.js") as f:
-    with open(args.script) as f:
-        script = session.create_script(f.read())
+    # with open(args.script) as f:
+    #     script = session.create_script(f.read())
 
-    script.on('message', on_message)
-    script.load()
+    # script.on('message', on_message)
+    # script.load()
+
+    time.sleep(1)
+    device.resume(pid)
+    time.sleep(1)  # Without it Java.perform silently fails
+
+    device.kill(pid)
+    session.detach()
+    adb_kill_frida()
+    log.info("killed frida-server")
 
     # prevent the python script from terminating
     sys.stdin.read()
