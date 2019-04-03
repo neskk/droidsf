@@ -17,13 +17,37 @@ https://github.com/b-mueller/frida-detection-demo
 
 ## Setup - Windows
 
-### 1. Install Android Studio (includes Android SDK) - [Download](https://developer.android.com/studio/)
+### 1. Install Java Development Kit 8 - [Download](https://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html)
 
-Make sure you have `adb` on your global path.
+Setup environment variables:
+ - `JAVA_HOME`: `C:\Program Files\Java\jdk1.8.0_201`
+ - Add to `PATH`: `%JAVA_HOME%\bin`
 
-Android SDK Path: `%UserProfile%\AppData\Local\Android\Sdk\platform-tools`.
+### 2. Install Android Studio (includes Android SDK) - [Download](https://developer.android.com/studio/)
 
-Setup environment variables `JDK_HOME`, `JAVA_HOME` and `ANDROID_SDK_HOME`.
+Setup environment variables (defaults on Windows):
+ - `ANDROID_SDK`: `%UserProfile%\AppData\Local\Android\Sdk`
+ - `ANDROID_SDK_HOME`: `%UserProfile%`
+
+**Note**: `ANDROID_SDK` and `ANDROID_SDK_HOME` can not point to the same directory.
+
+ - Add to `$PATH`: `%ANDROID_SDK%\platform-tools`
+ - Add to `$PATH`: `%ANDROID_SDK%\tools` (optional)
+
+ **Note**: new AVDs will be created under: `%ANDROID_SDK_HOME%\.android\avd`
+
+
+### 2. Setup Android Virtual Device (AVD) in Android Studio
+
+Make sure you have `java` and `adb` on your global path.
+
+Start Android Studio > Configure > AVD Manager > Create Virtual Device:
+ - Nexus 5X
+ - x86 images: Oreo - API level 27 - ABI x86
+
+This setup seems to work fine with current release of Frida.
+
+**Limitation**: Applications with native libraries only for ARM architecures (e.g. armeabi-v7a) will not work. Without getting your hopes high, check out: libhoudini.
 
 ### 2. Install Python 3 - [Download](https://www.python.org/downloads/)
 
