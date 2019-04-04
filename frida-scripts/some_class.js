@@ -1,4 +1,3 @@
-console.log("Script loaded successfully ");
 Java.perform(function x() {
 
     var someClass = Java.use("asvid.github.io.fridaapp.SomeClass");
@@ -7,13 +6,13 @@ Java.perform(function x() {
     console.log("SomeClass: " + someClassInstance.getSomeString())
     console.log("SomeClass: " + someClassInstance.getSomeString("with argument "))
 
-    someClass.getSomeString.overload().implementation = function(){
+    someClass.getSomeString.overload().implementation = function () {
         var original = this.getSomeString();
         return "some other string, and original: " + original;
     }
     console.log("SomeClass: " + someClassInstance.getSomeString())
 
-    someClass.getSomeString.overload().implementation = function(string){
+    someClass.getSomeString.overload().implementation = function (string) {
         var original = this.getSomeString("argument ");
         return "some other string, and original: " + original;
     }

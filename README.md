@@ -8,6 +8,8 @@ https://github.com/b-mueller/apkx
 
 https://www.frida.re/docs/android/
 
+https://github.com/frida/frida-python/tree/master/examples
+
 https://github.com/11x256/frida-android-examples
 
 http://asvid.github.io/android-frida-hacking

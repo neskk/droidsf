@@ -69,7 +69,7 @@ def get_args():
                         default="12.4.4")
     parser.add_argument("-s", "--script",
                         help="Script to execute.",
-                        default="test.js")
+                        default="class_list.js")
     parser.add_argument("-a", "--app",
                         help="App name to instrument.",
                         default="com.android.chrome")
