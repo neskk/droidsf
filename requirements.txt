@@ -1,4 +1,5 @@
 configargparse==0.14.0
 frida==12.4.4
 frida-tools==1.3.2
+pyelftools==0.25
 requests==2.21.0

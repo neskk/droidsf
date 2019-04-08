@@ -4,6 +4,7 @@
 import json
 import logging
 import lzma
+import hashlib
 import os
 import socket
 import struct
@@ -38,59 +39,89 @@ class LogFilter(logging.Filter):
 
 
 def get_args():
+    cwd = os.path.dirname(os.path.realpath(__file__))
     default_config = []
     if "-cf" not in sys.argv and "--config" not in sys.argv:
-        default_config = [os.path.join(
-            os.path.dirname(__file__), "../config/config.ini")]
-    parser = configargparse.ArgParser(default_config_files=default_config)
+        default_config = [os.path.join(cwd, "../config/config.ini")]
 
-    parser.add_argument("-cf", "--config",
-                        is_config_file=True,
-                        help="Set configuration file.")
-    parser.add_argument("-v", "--verbose",
-                        help="Run in the verbose mode.",
-                        action="store_true")
-    parser.add_argument("--download-path",
-                        help="Directory where downloaded files are saved.",
-                        default="downloads")
-    parser.add_argument("--log-path",
-                        help="Directory where log files are saved.",
-                        default="logs")
-    parser.add_argument("--report-path",
-                        help="Directory where report files are saved.",
-                        default="reports")
-    parser.add_argument('--arch',
-                        help="Android device architecture. Default: x86",
-                        default='x86',
-                        choices=('arm', 'arm64', 'x86', 'x86_64'))
-    parser.add_argument("-fv", "--frida-version",
-                        help=("Specify which frida version to use."
-                              "Note: must match python package version."),
-                        default="12.4.4")
-    parser.add_argument("-s", "--script",
-                        help="Script to execute.",
-                        default="class_list.js")
-    parser.add_argument("-a", "--app",
-                        help="App name to instrument.",
-                        default="com.android.chrome")
+    p = configargparse.ArgParser(default_config_files=default_config)
 
-    args = parser.parse_args()
+    p.add_argument("-cf", "--config",
+                   is_config_file=True,
+                   help="Set configuration file.")
+    p.add_argument("-v", "--verbose",
+                   help="Run in the verbose mode.",
+                   action="store_true")
+    p.add_argument("-a", "--apk-file",
+                   required=True,
+                   help="Path to APK to analyse.")
+    p.add_argument("--download-path",
+                   help="Directory where downloaded files are saved.",
+                   default="downloads")
+    p.add_argument("--log-path",
+                   help="Directory where log files are saved.",
+                   default="logs")
+    p.add_argument("--output-path",
+                   help="Directory where generated files are saved.",
+                   default="output")
+    p.add_argument("--arch",
+                   help="Android device architecture. Default: x86",
+                   default="x86",
+                   choices=("arm", "arm64", "x86", "x86_64"))
+    p.add_argument("--frida-version",
+                   help=("Specify which frida version to use."
+                         "Note: must match python package version."),
+                   default="12.4.4")
+    p.add_argument("-s", "--script",
+                   help="Script to execute.",
+                   default="class_list.js")
+    p.add_argument("--file-exclusions",
+                   help="Ignore these paths/files on static analysis",
+                   default=[".css", ".png", ".jpg", "jpeg", ".gif", "res/anim", "res/color", "res/drawable", "res/menu", "res/layout", "assets/fonts", "AndroidManifest.xml", "resources.arsc"],
+                   action="append")
+    p.add_argument("--directory-exclusions",
+                   help="Ignore these directories on static analysis.",
+                   default=[],
+                   action="append")
+    p.add_argument("--custom-checks",
+                   help="Additional checks to smali code.",
+                   default=[],
+                   action="append")
+    p.add_argument("--java_home",
+                   help="Directory that contains Java executables.",
+                   env_var='JAVA_HOME')
+    p.add_argument("--android_sdk",
+                   help="Directory that contains Android SDK executables.",
+                   env_var='ANDROID_SDK')
+
+    args = p.parse_args()
+
+    # Helper parameters
+    setattr(args, "cwd", os.path.realpath(os.path.join(cwd, "../")))
+
+    if args.verbose:
+        d = vars(args)
+        for k, v in d.items():
+            print(k + ": " + str(v))
 
     return args
 
-
+# Create necessary work directories
 def setup_workspace(args):
-    cwd = os.getcwd()
-    dirs = [args.download_path, args.log_path, args.report_path]
+    pathnames = ["download_path", "log_path", "output_path"]
+    args_dict = vars(args)
+    for pathname in pathnames:
+        rel_path = args_dict[pathname]
+        abs_path = os.path.realpath(os.path.join(args.cwd, rel_path))
 
-    # Create necessary work directories
-    for directory in dirs:
-        if not os.path.exists(directory):
-            os.makedirs(directory)
+        if not os.path.exists(abs_path):
+            os.makedirs(abs_path)
+
+        args_dict[pathname] = abs_path
 
 
 def setup_logging(args, log):
-    date = time.strftime("%Y%m%d_%H%M")
+    date = time.strftime("%Y%m%d_%H%M%S")
     filename = os.path.join(args.log_path, "{}-droidsf.log".format(date))
     filelog = logging.FileHandler(filename)
     formatter_full = logging.Formatter(
@@ -143,9 +174,11 @@ def setup_frida(target_version):
 
 def load_file(path, filename):
     file_path = os.path.join(path, filename)
-
+    content = ""
     with open(file_path, "r") as f:
-        return f.read()
+        content = f.read()
+
+    return content
 
 
 def export_file(output_path, filename, content):
@@ -210,3 +243,9 @@ def extract_xz(path, filename):
         fout.write(data)
 
     return extracted_filename
+
+# Return the SHA256 of the file.
+def sha256_checksum(file_path):
+    with open(file_path, "rb") as f:
+        contents = f.read()
+        return hashlib.sha256(contents).hexdigest()
