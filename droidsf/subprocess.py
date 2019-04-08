@@ -10,6 +10,7 @@ log = logging.getLogger(__name__)
 
 class Subprocess(object):
     def __init__(self, cmd):
+        self.cmd = " ".join(cmd)
         self.p = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -22,11 +23,11 @@ class Subprocess(object):
     def parse_output(self):
         res = ""
         if self.err:
-            res += "[stderr] " + self.err
+            res += "[ stderr from: " + self.cmd + " ]\n" + self.err
         if self.out:
             if res:
                 res += "\n"
-            res += "[stdout] " + self.out
+            res += "[ stdout from: " + self.cmd + " ]\n" + self.out
 
         if "error" in res:
             log.error(res)

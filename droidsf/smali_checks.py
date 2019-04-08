@@ -7,6 +7,7 @@ from sys import platform
 from timeit import default_timer
 
 import droidsf.utils
+from droidsf.grep import Grep
 
 log = logging.getLogger(__name__)
 
@@ -112,13 +113,8 @@ class SmaliChecks:
 
     def checkForExistenceInFolder(self, objectRegEx, folderPath):
         start_time = default_timer()
-        res = []
-        for path in folderPath:
-            x = self.checkPatternDirectory(objectRegEx, path)
-            for xe in x:
-                res.append(path + "/" + xe)
-
-            # res.extend(self.checkPattern(objectRegEx, path))
+        search = Grep(objectRegEx)
+        res = search.check_directories(folderPath)
 
         elapsed_time = default_timer() - start_time
         log.debug("Python took %.3fs searching for: %s", elapsed_time, objectRegEx)
