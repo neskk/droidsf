@@ -10,6 +10,7 @@ import socket
 import struct
 import sys
 import time
+from timeit import default_timer
 
 import configargparse
 import requests
@@ -37,6 +38,27 @@ class LogFilter(logging.Filter):
     def filter(self, record):
         return record.levelno < self.level
 
+# Decorator for memoization/result cache
+# Alternative: functools.lru_cache(maxsize=128)
+def memoize(f):
+    memo = {}
+
+    def helper(x):
+        if x not in memo:
+            memo[x] = f(x)
+        return memo[x]
+    return helper
+
+# Decorator for time benchmarks
+def timeit(f):
+    def timed(*args, **kw):
+        ts = default_timer()
+        result = f(*args, **kw)
+        td = default_timer() - ts
+        print("%s  %.2fms" % (f.__name__, td * 1000))
+        return result
+
+    return timed
 
 def get_args():
     cwd = os.path.dirname(os.path.realpath(__file__))
@@ -119,7 +141,6 @@ def setup_workspace(args):
 
         args_dict[pathname] = abs_path
 
-
 def setup_logging(args, log):
     date = time.strftime("%Y%m%d_%H%M%S")
     filename = os.path.join(args.log_path, "{}-droidsf.log".format(date))
@@ -171,27 +192,26 @@ def setup_frida(target_version):
         log.critical("Run: pip install -r requirements.txt --upgrade")
         sys.exit(1)
 
-
-def load_file(path, filename):
-    file_path = os.path.join(path, filename)
+def load_file(file_path, mode="r"):
     content = ""
-    with open(file_path, "r") as f:
+    with open(file_path, mode) as f:
         content = f.read()
 
     return content
 
-
-def export_file(output_path, filename, content):
+def export_file(output_path, filename, content, mode="w"):
     file_path = os.path.join(output_path, filename)
 
-    with open(file_path, "w") as file:
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+
+    with open(file_path, mode) as file:
         file.truncate()
         if isinstance(content, list):
             for line in content:
                 file.write(line + "\n")
         else:
             file.write(content)
-
 
 def download_file(url, output_path, chunk_size=8192):
     filename = url.split("/")[-1]
@@ -223,7 +243,6 @@ def download_file(url, output_path, chunk_size=8192):
                     sys.stdout.write("\n")
 
     return filename
-
 
 def get_json(url):
     r = requests.get(url)

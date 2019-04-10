@@ -19,7 +19,7 @@ from droidsf.intent_filter import IntentFilter
 from droidsf.smali_checks import SmaliChecks
 
 from elftools.elf.elffile import ELFFile
-from io import StringIO
+from io import BytesIO
 # from zipfile import ZipFile
 import gzip
 # import string
@@ -63,8 +63,8 @@ class DroidStatX:
     d = ""
     dx = ""
     xml = ""
-    manifest = ""
-    application = ""
+    manifest_xml = {}
+    app_xml = {}
     exportedActivities = []
     intentFilterList = {}
     componentPermissionList = {}
@@ -91,7 +91,7 @@ class DroidStatX:
     xamarinBundledFile = ""
     isAppCordova = False
     isAppOutsystems = False
-    hasNetworkSecurityConfig = False
+    networkSecurityConfig = False
     minSDKVersion = ""
     targetSDKVersion = ""
     versionCode = ""
@@ -120,8 +120,9 @@ class DroidStatX:
         self.smaliChecks = SmaliChecks(args, self.output_name)
 
         log.info("Analysing manifest.xml")
-        self.manifest = self.apk.get_android_manifest_axml().get_xml_obj()
-        self.application = self.manifest.findall("application")[0]
+        self.manifest_xml = self.apk.get_android_manifest_axml().get_xml_obj()
+        self.app_xml = self.manifest_xml.findall("application")[0]
+
         log.info("Extracting Activities")
         self.extractActivitiesWithExcludeFromRecents()
         self.extractActivitiesWithoutSecureFlag()
@@ -134,28 +135,43 @@ class DroidStatX:
         log.info("Extracting Files")
         self.extractFiles(args)
 
+        self.export_analysis(args.output_path)
+
+    def export_analysis(self, output_path):
+        data = self.get_analysis()
+        content = []
+        for elem in sorted(data.items()):
+            content.append(elem[0] + ": " + str(elem[1]))
+        data = self.smaliChecks.get_analysis()
+        for elem in sorted(data.items()):
+            content.append(elem[0] + ": " + str(elem[1]))
+
+        filename = self.output_name + ".txt"
+        droidsf.utils.export_file(output_path, filename, content)
+        log.info("Exported analysis to: %s", filename)
+
     # Return the Android Code Name for the particular Api Level.
     def getCodeName(self, apiLevel):
         return ANDROID_CODENAMES[apiLevel]
 
     # Extract package properties such as the minSDKVersion, PackageName, VersionName, VersionCode, isDebuggable, allowBackup
     def extractPackageProperties(self):
-        usesSDK = self.manifest.findall("uses-sdk")
+        usesSDK = self.manifest_xml.findall("uses-sdk")
         self.minSDKVersion = self.apk.get_min_sdk_version()
         self.targetSDKVersion = self.apk.get_target_sdk_version()
         self.packageName = self.apk.get_package()
         self.versionName = self.apk.get_androidversion_name()
         self.versionCode = self.apk.get_androidversion_code()
-        if self.application.get(NS_ANDROID + "debuggable") == 'true':
+        if self.app_xml.get(NS_ANDROID + "debuggable") == 'true':
             self.debuggable = True
-        if self.application.get(NS_ANDROID + "allowBackup") == 'true':
+        if self.app_xml.get(NS_ANDROID + "allowBackup") == 'true':
             self.allowBackup = True
-        elif self.application.get(NS_ANDROID + "allowBackup") == 'false':
+        elif self.app_xml.get(NS_ANDROID + "allowBackup") == 'false':
             self.allowBackup = False
         else:
             self.allowBackup = True
-        if self.application.get(NS_ANDROID + "networkSecurityConfig") is not None:
-            self.hasNetworkSecurityConfig = True
+        if self.app_xml.get(NS_ANDROID + "networkSecurityConfig") is not None:
+            self.networkSecurityConfig = True
             self.parseNetworkSecurityConfigFile()
 
     def parseNetworkSecurityConfigFile(self):
@@ -186,6 +202,7 @@ class DroidStatX:
                         if 'expiration' in sub.attrib:
                             domainConfig['pinningExpiration'] = sub.attrib['expiration']
                 self.networkSecurityConfigDomains.append(domainConfig)
+                log.info(domainConfig)
             if child.tag == "domain-config":
                 domainConfig = {
                     'domains': [],
@@ -209,6 +226,7 @@ class DroidStatX:
                         if 'expiration' in sub.attrib:
                             domainConfig['pinningExpiration'] = sub.attrib['expiration']
                 self.networkSecurityConfigDomains.append(domainConfig)
+                log.info(domainConfig)
 
     # Create the list of permissions used by the package
     def extractPermissions(self):
@@ -230,13 +248,24 @@ class DroidStatX:
 
     # Create a global list of activities with the excludeFromRecentes attribute
     def extractActivitiesWithExcludeFromRecents(self):
-        for activity in self.application.findall("activity"):
+        for activity in self.app_xml.findall("activity"):
             if activity.get(NS_ANDROID + "excludeFromRecents") == 'true':
-                self.activitiesWithExcludeFromRecents.append(activity)
+                self.activitiesWithExcludeFromRecents.append(activity.get(NS_ANDROID + "name"))
+
+    # Create a global list of activities that do not have the FLAG_SECURE or the excludeFromRecents attribute set.
+    def extractActivitiesWithoutSecureFlag(self):
+        activitiesWithoutSecureFlag = []
+        for activity in self.apk.get_activities():
+            if self.smaliChecks.doesActivityHasFlagSecure(activity) is False and activity not in self.activitiesWithExcludeFromRecents:
+                try:
+                    activity.encode("ascii")
+                except UnicodeEncodeError as e:
+                    activity = activity.encode('ascii', 'xmlcharrefreplace')
+                self.activitiesWithoutFlagSecure.append(activity)
 
     # Return the ProtectionLevel of a particular Permission
     def determinePermissionProtectionLevel(self, targetPermission):
-        for permission in self.manifest.findall("permission"):
+        for permission in self.manifest_xml.findall("permission"):
             if permission.get(NS_ANDROID + "name") == targetPermission:
                 print(permission.get(NS_ANDROID + "protectionLevel"))
         return ""
@@ -247,46 +276,46 @@ class DroidStatX:
             self.componentPermissionList[component.get(NS_ANDROID + "name")] = component.get(NS_ANDROID + "permission")
 
     # Create a global list with that particular object intent-filters indexed to the component name.
-    def extractIntentFilters(self, filters, obj):
+    def extractIntentFilters(self, filters, component):
         filterList = []
-        name = obj.get(NS_ANDROID + "name")
-        filters = obj.findall("intent-filter")
+        name = component.get(NS_ANDROID + "name")
+        log.debug("Extracting Intent Filters from: %s", name)
+        filters = component.findall("intent-filter")
         for filter in filters:
             intentFilter = IntentFilter()
-            if len(filter.findall("action")) > 0:
-                for action in filter.findall("action"):
-                    intentFilter.addAction(action.get(NS_ANDROID + "name"))
-            if len(filter.findall("category")) > 0:
-                for category in filter.findall("category"):
-                    intentFilter.addCategory(category.get(NS_ANDROID + "name"))
-            if len(filter.findall("data")) > 0:
-                for data in filter.findall("data"):
-                    if data.get(NS_ANDROID + "scheme") is not None:
-                        intentFilter.addData("scheme:" + data.get(NS_ANDROID + "scheme"))
-                    if data.get(NS_ANDROID + "host") is not None:
-                        intentFilter.addData("host:" + data.get(NS_ANDROID + "host"))
-                    if data.get(NS_ANDROID + "port") is not None:
-                        intentFilter.addData("port:" + data.get(NS_ANDROID + "port"))
-                    if data.get(NS_ANDROID + "path") is not None:
-                        intentFilter.addData("path:" + data.get(NS_ANDROID + "path"))
-                    if data.get(NS_ANDROID + "pathPattern") is not None:
-                        intentFilter.addData("pathPattern:" + data.get(NS_ANDROID + "pathPattern"))
-                    if data.get(NS_ANDROID + "pathPrefix") is not None:
-                        intentFilter.addData("pathPrefix:" + data.get(NS_ANDROID + "pathPrefix"))
-                    if data.get(NS_ANDROID + "mimeType") is not None:
-                        intentFilter.addData("mimeType:" + data.get(NS_ANDROID + "mimeType"))
+            for action in filter.findall("action"):
+                intentFilter.addAction(action.get(NS_ANDROID + "name"))
+            for category in filter.findall("category"):
+                intentFilter.addCategory(category.get(NS_ANDROID + "name"))
+            for data in filter.findall("data"):
+                if data.get(NS_ANDROID + "scheme") is not None:
+                    intentFilter.addData("scheme:" + data.get(NS_ANDROID + "scheme"))
+                if data.get(NS_ANDROID + "host") is not None:
+                    intentFilter.addData("host:" + data.get(NS_ANDROID + "host"))
+                if data.get(NS_ANDROID + "port") is not None:
+                    intentFilter.addData("port:" + data.get(NS_ANDROID + "port"))
+                if data.get(NS_ANDROID + "path") is not None:
+                    intentFilter.addData("path:" + data.get(NS_ANDROID + "path"))
+                if data.get(NS_ANDROID + "pathPattern") is not None:
+                    intentFilter.addData("pathPattern:" + data.get(NS_ANDROID + "pathPattern"))
+                if data.get(NS_ANDROID + "pathPrefix") is not None:
+                    intentFilter.addData("pathPrefix:" + data.get(NS_ANDROID + "pathPrefix"))
+                if data.get(NS_ANDROID + "mimeType") is not None:
+                    intentFilter.addData("mimeType:" + data.get(NS_ANDROID + "mimeType"))
             filterList.append(intentFilter)
+
         self.intentFilterList[name] = filterList
 
     # Determine exported Activities taking into account the existence of exported attribute or the presence of intent-filters and also check for presence of secretCode and if vulnerable to Fragment Injection
     # Check if any of the activities (exported or not) have any SECRET_CODE configured.
     def extractExportedActivities(self):
-        for activity in self.application.findall("activity"):
+        for activity in self.app_xml.findall("activity"):
             activityName = activity.get(NS_ANDROID + "name")
             self.checkForSecretCodes(activity)
             if len(activity.findall("intent-filter")) > 0:
                 filters = activity.findall("intent-filter")
                 self.extractIntentFilters(filters, activity)
+
             if activity.get(NS_ANDROID + "exported") == 'true':
                 self.extractComponentPermission(activity)
                 if self.smaliChecks.doesActivityExtendsPreferenceActivity(activityName) is True:
@@ -328,7 +357,7 @@ class DroidStatX:
 
     # Determine exported Broadcast Receivers taking into account the existence of exported attribute or the presence of intent-filters
     def extractExportedReceivers(self):
-        for receiver in self.application.findall("receiver"):
+        for receiver in self.app_xml.findall("receiver"):
             receiverName = receiver.get(NS_ANDROID + "name")
             self.checkForSecretCodes(receiver)
             if receiver.get(NS_ANDROID + "exported") == 'true':
@@ -346,7 +375,7 @@ class DroidStatX:
 
     # Determine exported Content Providers taking into account the existence of exported attribute or without the attributes, under API 16 they are exported by default
     def extractExportedProviders(self):
-        for provider in self.application.findall("provider"):
+        for provider in self.app_xml.findall("provider"):
             providerName = provider.get(NS_ANDROID + "name")
             self.checkForSecretCodes(provider)
             if provider.get(NS_ANDROID + "exported") == 'true':
@@ -362,7 +391,7 @@ class DroidStatX:
 
     # Determine exported Services taking into account the existence of exported attribute or the presence of intent-filters
     def extractExportedServices(self):
-        for service in self.application.findall("service"):
+        for service in self.app_xml.findall("service"):
             serviceName = service.get(NS_ANDROID + "name")
             self.checkForSecretCodes(service)
             if service.get(NS_ANDROID + "exported") == 'true':
@@ -384,6 +413,171 @@ class DroidStatX:
         self.extractExportedReceivers()
         self.extractExportedProviders()
         self.extractExportedServices()
+
+    # Determine if path is in the exclude paths configured in the config file.
+    def isInExclusions(self, filename, exclusions):
+        for pattern in exclusions:
+            if pattern in filename:
+                return True
+        return False
+
+    # Create a list of files, organized in several types and while doing it, by the existence of certain files, determine if the app is a Cordova or Xamarin app.
+    def extractFiles(self, args):
+        files = self.apk.get_files()
+        try:
+            for f in files:
+                if self.isInExclusions(f, args.file_exclusions):
+                    continue
+                try:
+                    f.encode("ascii")
+                except UnicodeEncodeError as e:
+                    f = f.encode('ascii', 'xmlcharrefreplace')
+                if "assets/www/" in f:
+                    if "assets/www/cordova.js" in f:
+                        self.isAppCordova = True
+                    if "assets/www/plugins/" in f:
+                        beginPos = f.find("/plugins/") + 9
+                        endPos = f.find("/", beginPos)
+                        item = f[beginPos:endPos]
+                        self.cordovaPlugins.append(item) if item not in self.cordovaPlugins else None
+                    self.cordova.append(f)
+                elif f[0:4] == "lib/":
+                    self.libs.append(f)
+                    if 'libmonodroid_bundle_app.so' in f:
+                        self.isAppXamarin = True
+                        self.xamarinMKBundled = True
+                        self.xamarinBundledFile = f
+                        self.unbundleXamarinDlls(f)
+                elif f[0:11] == "assemblies/" in f:
+                    self.assemblies.append(f)
+                    if 'Xamarin.' in f and self.isAppXamarin is False:
+                        self.isAppXamarin = True
+                elif "assets/" in f:
+                    self.assets.append(f)
+                elif "res/raw/" in f:
+                    self.rawResources.append(f)
+                elif ".dex" in f:
+                    self.dexFiles.append(f)
+                else:
+                    self.otherFiles.append(f)
+        except UnicodeDecodeError as e:
+            pass
+
+    # Run apktool on the package with the options
+    # d : Decompile
+    # -b : Don't write out debug info
+    # -f : Force rewrite
+    # -o : Output folder
+    def bakmali(self, args):
+        apktool_jar = None
+        for root, dirs, files in os.walk(args.download_path):
+            for name in files:
+                if "apktool" in name:
+                    apktool_jar = name
+                    break
+
+        if not apktool_jar:
+            log.error("Unable to find Apktool in workspace.")
+            return False
+
+        if os.path.isfile(os.path.join(self.output_path, ".droidsf")):
+            log.debug("Skipped Baksmali, found previous output.")
+            return True
+
+        apktool_path = os.path.join(args.download_path, apktool_jar)
+        cmd = Subprocess(["java", "-Xms64m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", "/tmp/", args.apk_file, "-o", self.output_path])
+
+        if not cmd.success:
+            return False
+
+        date = time.strftime("%Y%m%d_%H%M%S")
+        droidsf.utils.export_file(self.output_path, ".droidsf", date)
+        return True
+
+    def unbundleXamarinDlls(self, lib_path):
+        export_path = "xamarin_" + lib_path.split(os.sep)[1]
+        file_path = os.path.join(self.output_path, lib_path)
+        output_path = os.path.join(self.output_path, export_path)
+        log.info("Unpacking %s to %s.", lib_path, output_path)
+        with open(file_path, "rb") as f:
+            data = f.read()
+            elffile = ELFFile(f)
+            log.debug("Loaded ELF file: %s", lib_path)
+            section = elffile.get_section_by_name('.dynsym')
+
+            for symbol in section.iter_symbols():
+                if symbol['st_shndx'] != 'SHN_UNDEF' and symbol.name.startswith('assembly_data_'):
+                    start_offset = symbol['st_value']
+                    end_offset = symbol['st_value'] + symbol['st_size']
+
+                    dll_data = data[start_offset:end_offset]
+                    dll_data = gzip.GzipFile(fileobj=BytesIO(dll_data)).read()
+
+                    filename = symbol.name[14:].replace('_dll', '.dll')
+                    droidsf.utils.export_file(output_path, filename, dll_data, mode="wb")
+                    log.debug("Exported Xamarin DLL: %s", filename)
+
+    # *** GETTERS ***
+
+    def get_analysis(self):
+        attrs = [
+            "permissions",
+            "exportedActivities",
+            "exportedReceivers",
+            "exportedProviders",
+            "exportedServices",
+            "packageName",
+            "minSDKVersion",
+            "targetSDKVersion",
+            "versionName",
+            "versionCode",
+            "sha256",
+            "isAppCordova",
+            "isAppXamarin",
+            "xamarinMKBundled",
+            "isAppOutsystems",
+            "debuggable",
+            "allowBackup",
+            "networkSecurityConfig",
+            "isMultiDex",
+            "assets",
+            "cordova",
+            "rawResources",
+            "libs",
+            "otherFiles",
+            "assemblies",
+            "dexFiles",
+            "secretCodes",
+            "intentFilterList",
+            "networkSecurityConfigDomains",
+            "activitiesWithExcludeFromRecents",
+            "activitiesWithoutFlagSecure",
+            "activitiesExtendPreferencesWithValidate",
+            "activitiesExtendPreferencesWithoutValidate",
+            "cordovaPlugins"
+        ]
+        data = {}
+        for attr in attrs:
+            value = getattr(self, attr)
+            if isinstance(value, list):
+                try:
+                    value = sorted(value)
+                except TypeError:
+                    pass
+            elif callable(value):
+                value = value()
+
+            data[attr] = value
+
+        return data
+
+    # Return the permission defined in the particular component.
+    # XXX: unused
+    def getComponentPermission(self, name):
+        try:
+            return self.componentPermissionList[name]
+        except:
+            return ""
 
     # Return the app permissions global list
     def getPermissions(self):
@@ -429,13 +623,6 @@ class DroidStatX:
     def getSHA256(self):
         return self.sha256
 
-    # Return the permission defined in the particular component.
-    def getComponentPermission(self, name):
-        try:
-            return self.componentPermissionList[name]
-        except:
-            return ""
-
     def isCordova(self):
         if self.isAppCordova is True:
             return "Yes"
@@ -473,13 +660,10 @@ class DroidStatX:
             return "No"
 
     def hasNetworkSecurityConfig(self):
-        return self.hasNetworkSecurityConfig
+        return self.networkSecurityConfig
 
     def isMultiDex(self):
-        if len(self.getDexFiles()) > 1:
-            return "Yes"
-        else:
-            return "No"
+        return len(self.dexFiles) > 1
 
     def getAssets(self):
         return self.assets
@@ -511,67 +695,6 @@ class DroidStatX:
     def getNetworkSecurityConfigDomains(self):
         return self.networkSecurityConfigDomains
 
-    # Determine if path is in the exclude paths configured in the config file.
-    def isInExclusions(self, filename, exclusions):
-        for pattern in exclusions:
-            if pattern in filename:
-                return True
-        return False
-
-    # Create a list of files, organized in several types and while doing it, by the existence of certain files, determine if the app is a Cordova or Xamarin app.
-    def extractFiles(self, args):
-        files = self.apk.get_files()
-        try:
-            for f in files:
-                if self.isInExclusions(f, args.file_exclusions):
-                    continue
-                try:
-                    f.encode("ascii")
-                except UnicodeEncodeError as e:
-                    f = f.encode('ascii', 'xmlcharrefreplace')
-                if "assets/www/" in f:
-                    if "assets/www/cordova.js" in f:
-                        self.isAppCordova = True
-                    if "assets/www/plugins/" in f:
-                        beginPos = f.find("/plugins/") + 9
-                        endPos = f.find("/", beginPos)
-                        item = f[beginPos:endPos]
-                        self.cordovaPlugins.append(item) if item not in self.cordovaPlugins else None
-                    self.cordova.append(f)
-                elif f[0:4] == "lib/":
-                    self.libs.append(f)
-                    if 'libmonodroid_bundle_app.so' in f:
-                        self.isAppXamarin = True
-                        self.xamarinMKBundled = True
-                        self.xamarinBundledFile = f
-                        print("[-]Extracting Dll's from bundled lib.")
-                        self.unbundleXamarinDlls(args)
-                elif f[0:11] == "assemblies/" in f:
-                    self.assemblies.append(f)
-                    if 'Xamarin.' in f and self.isAppXamarin is False:
-                        self.isAppXamarin = True
-                elif "assets/" in f:
-                    self.assets.append(f)
-                elif "res/raw/" in f:
-                    self.rawResources.append(f)
-                elif ".dex" in f:
-                    self.dexFiles.append(f)
-                else:
-                    self.otherFiles.append(f)
-        except UnicodeDecodeError as e:
-            pass
-
-    # Create a global list of activities that do not have the FLAG_SECURE or the excludeFromRecents attribute set.
-    def extractActivitiesWithoutSecureFlag(self):
-        activitiesWithoutSecureFlag = []
-        for activity in self.apk.get_activities():
-            if self.smaliChecks.doesActivityHasFlagSecure(activity) is False and activity not in self.getActivitiesWithExcludeFromRecents():
-                try:
-                    activity.encode("ascii")
-                except UnicodeEncodeError as e:
-                    activity = activity.encode('ascii', 'xmlcharrefreplace')
-                self.activitiesWithoutFlagSecure.append(activity)
-
     def getActivitiesWithExcludeFromRecents(self):
         return self.activitiesWithExcludeFromRecents
 
@@ -586,56 +709,3 @@ class DroidStatX:
 
     def getCordovaPlugins(self):
         return self.cordovaPlugins
-
-    # Run apktool on the package with the options
-    # d : Decompile
-    # -b : Don't write out debug info
-    # -f : Force rewrite
-    # -o : Output folder
-    def bakmali(self, args):
-        apktool_jar = None
-        for root, dirs, files in os.walk(args.download_path):
-            for name in files:
-                if "apktool" in name:
-                    apktool_jar = name
-                    break
-
-        if not apktool_jar:
-            log.error("Unable to find Apktool in workspace.")
-            return False
-
-        if os.path.isfile(os.path.join(self.output_path, ".droidsf")):
-            log.debug("Skipped Baksmali, found previous output.")
-            return True
-
-        apktool_path = os.path.join(args.download_path, apktool_jar)
-        cmd = Subprocess(["java", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", "/tmp/", args.apk_file, "-o", self.output_path])
-
-        if not cmd.success:
-            return False
-
-        date = time.strftime("%Y%m%d_%H%M%S")
-        droidsf.utils.export_file(self.output_path, ".droidsf", date)
-        return True
-
-    # Untested
-    def unbundleXamarinDlls(self, args):
-        file_path = os.path.join(args.output_path, self.xamarinBundledFile)
-        with open(file_path, "rb") as f:
-            data = f.read()
-            elffile = ELFFile(f)
-            log.info("Loaded ELF file: %s", self.xamarinBundledFile)
-            section = elffile.get_section_by_name('.dynsym')
-
-            for symbol in section.iter_symbols():
-                if symbol['st_shndx'] != 'SHN_UNDEF' and symbol.name.startswith('assembly_data_'):
-                    log.debug("Found symbol: %s", symbol.name)
-                    start_offset = symbol['st_value']
-                    end_offset = symbol['st_value'] + symbol['st_size']
-
-                    dll_data = data[start_offset:end_offset]
-                    dll_data = gzip.GzipFile(fileobj=StringIO(dll_data)).read()
-                    output_path = os.path.join(args.output_path, self.output_name)
-                    filename = symbol.name[14:].replace('_dll', '.dll')
-                    droidsf.utils.export_file(args.output_path, filename, dll_data)
-                    log.info("Exported Xamarin DLL: %s", filename)

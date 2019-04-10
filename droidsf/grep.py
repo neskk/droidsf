@@ -13,6 +13,18 @@ class Grep(object):
         self.dir_exclusions = dir_exclusions
         self.file_exclusions = file_exclusions
 
+    def is_excluded_file(self, filename):
+        for pattern in self.file_exclusions:
+            if pattern in filename:
+                return True
+        return False
+
+    def is_excluded_dir(self, dirname):
+        for pattern in self.dir_exclusions:
+            if pattern in dirname:
+                return True
+        return False
+
     def check_directories(self, paths):
         result = []
         for path in paths:
@@ -24,8 +36,8 @@ class Grep(object):
         result = []
 
         for root, dirs, files in os.walk(path):
-            dirs[:] = [d for d in dirs if d not in self.dir_exclusions]
-            files[:] = [f for f in files if f not in self.file_exclusions]
+            dirs[:] = [d for d in dirs if not self.is_excluded_dir(d)]
+            files[:] = [f for f in files if not self.is_excluded_file(f)]
 
             for name in files:
                 file_path = os.path.join(root, name)

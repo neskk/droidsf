@@ -9,6 +9,12 @@ class IntentFilter:
         self.categoryList = []
         self.dataList = []
 
+    def __repr__(self):
+        return "IntentFilter [action: {}] [category: {}] [data: {}]".format(
+            ", ".join(self.actionList),
+            ", ".join(self.categoryList),
+            ", ".join(self.dataList))
+
     def addAction(self, action):
         self.actionList.append(action)
 

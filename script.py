@@ -96,6 +96,7 @@ if __name__ == '__main__':
     droidstatx = DroidStatX(args)
     app_package = droidstatx.apk.get_package()
     log.info("Analysed %s with DroidStatX.", app_package)
+
     sys.exit(0)
     adb = adb_launch_frida(args)
 
@@ -110,8 +111,10 @@ if __name__ == '__main__':
         session = device.attach(pid)
         log.info("Frida attached to %s (PID: %s).", app_package, pid)
 
-        code = droidsf.utils.load_file("frida-scripts", "_header.js")
-        code += droidsf.utils.load_file("frida-scripts", args.script)
+        script_header = os.path.join(args.cwd, "frida-scripts", "_header.js")
+        code = droidsf.utils.load_file(script_header)
+        script_file = os.path.join(args.cwd, "frida-scripts", args.script)
+        code += droidsf.utils.load_file(script_file)
         code = code.replace("%app%", app_package)
         code = code.replace("%script%", args.script)
 
