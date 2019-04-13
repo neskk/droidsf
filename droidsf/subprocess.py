@@ -40,31 +40,36 @@ class Subprocess(object):
 
 class SubprocessShell(Subprocess):
     def __init__(self, cmd, inputs=[], persists=False):
-        self.p = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True)
-        if not persists:
-            inputs = "\n".join(inputs)
-            self.out, self.err = self.p.communicate(inputs)
-            self.success = self.parse_output()
-        else:
-            self.out, self.err = "", ""
-            for shell_cmd in inputs:
-                self.p.stdin.write(shell_cmd + "\n")
-                self.p.stdin.flush()
-                time.sleep(0.3)
-
-            # Popen.poll() returns None if process hasn't terminated yet
-            if self.p.poll() is None:
-                log.debug("Shell is busy, process is running...")
-                time.sleep(1)
-                self.p.kill()
-                log.debug("Terminating shell process.")
-                time.sleep(2)
-                self.success = True
+        self.success = False
+        try:
+            self.p = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True)
+            if not persists:
+                inputs = "\n".join(inputs)
+                self.out, self.err = self.p.communicate(inputs)
+                self.success = self.parse_output()
             else:
-                log.error("Shell process was unexpectedly terminated.")
-                self.success = False
+                self.out, self.err = "", ""
+                for shell_cmd in inputs:
+                    self.p.stdin.write(shell_cmd + "\n")
+                    self.p.stdin.flush()
+                    time.sleep(0.3)
+
+                # Popen.poll() returns None if process hasn't terminated yet
+                if self.p.poll() is None:
+                    log.debug("Shell is busy, process is running...")
+                    time.sleep(1)
+                    self.p.kill()
+                    log.debug("Terminating shell process.")
+                    time.sleep(2)
+                    self.success = True
+                else:
+                    log.error("Shell process was unexpectedly terminated.")
+                    self.success = False
+        except Exception as e:
+            log.error("Shell process terminated unexpectedly: %s", e)
+            self.success = False

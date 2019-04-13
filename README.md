@@ -1,42 +1,31 @@
 # DroidSF: Android Security Framework
 
-## Credits
-
-https://github.com/clviper/droidstatx
-
-https://github.com/b-mueller/apkx
-
-https://www.frida.re/docs/android/
-
-https://github.com/frida/frida-python/tree/master/examples
-
-https://github.com/11x256/frida-android-examples
-
-http://asvid.github.io/android-frida-hacking
-
-https://github.com/b-mueller/frida-detection-demo
-
+## Requirements
+- Git
+- Python 3
+- Java JDK
+- Android Studio + Android SDK
 
 ## Setup - Windows
 
 ### 1. Install Java Development Kit 8 - [Download](https://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html)
 
 Setup environment variables:
- - `JAVA_HOME`: `C:\Program Files\Java\jdk1.8.0_201`
- - Add to `PATH`: `%JAVA_HOME%\bin`
+- `JAVA_HOME`: `C:\Program Files\Java\jdk1.8.0_201`
+- Add to `PATH`: `%JAVA_HOME%\bin`
 
 ### 2. Install Android Studio (includes Android SDK) - [Download](https://developer.android.com/studio/)
 
 Setup environment variables (defaults on Windows):
- - `ANDROID_SDK`: `%UserProfile%\AppData\Local\Android\Sdk`
- - `ANDROID_SDK_HOME`: `%UserProfile%`
+- `ANDROID_SDK`: `%UserProfile%\AppData\Local\Android\Sdk`
+- `ANDROID_SDK_HOME`: `%UserProfile%`
 
 **Note**: `ANDROID_SDK` and `ANDROID_SDK_HOME` can not point to the same directory.
 
- - Add to `$PATH`: `%ANDROID_SDK%\platform-tools`
- - Add to `$PATH`: `%ANDROID_SDK%\tools` (optional)
+- Add to `$PATH`: `%ANDROID_SDK%\platform-tools`
+- Add to `$PATH`: `%ANDROID_SDK%\tools` (optional)
 
- **Note**: new AVDs will be created under: `%ANDROID_SDK_HOME%\.android\avd`
+**Note**: new AVDs will be created under: `%ANDROID_SDK_HOME%\.android\avd`
 
 
 ### 2. Setup Android Virtual Device (AVD) in Android Studio
@@ -95,11 +84,26 @@ Test it by typing: `Java.androidVersion` - it should output the Android OS versi
 py -3 -m pip install -r requirements.txt
 ```
 
-### Usage
+## Build Enjarify PEX
+
+pip3 install pex
+git clone git@github.com:neskk/enjarify.git
+cd enjarify
+
+python3 -m pex -v --disable-cache . -e enjarify.main -o bin/enjarify.pex --python=python3
+
+## Usage
 
 ```
-usage: script.py [-h] [-cf CONFIG] [-v] [--log-path LOG_PATH] [-s SCRIPT]
-                 [-a APP]
+usage: script.py [-h] [-cf CONFIG] [-v] [--force] [--force-download] -a
+                 APK_FILE [--cache-path CACHE_PATH]
+                 [--download-path DOWNLOAD_PATH] [--log-path LOG_PATH]
+                 [--output-path OUTPUT_PATH] [--arch {arm,arm64,x86,x86_64}]
+                 [--decompiler {cfr,procyon}] [--frida-version FRIDA_VERSION]
+                 [-s SCRIPT] [--file-exclusions FILE_EXCLUSIONS]
+                 [--directory-exclusions DIRECTORY_EXCLUSIONS]
+                 [--custom-checks CUSTOM_CHECKS] [--java_home JAVA_HOME]
+                 [--android_sdk ANDROID_SDK]
 ```
 Args that start with '--' (eg. -v) can also be set in a config file (config/config.ini or specified via -cf).
 
@@ -107,12 +111,60 @@ Config file syntax allows: key=value, flag=true, stuff=[a,b,c] (for details, see
 If an argument is specified in more than one place, then commandline values override config file values which override defaults.
 
 ```
-optional arguments:
+arguments:
   -h, --help            show this help message and exit
   -cf CONFIG, --config CONFIG
                         Set configuration file.
   -v, --verbose         Run in the verbose mode.
+  --force               Overrides previously generated files.
+  --force-download      Overrides previously downloaded files.
+  -a APK_FILE, --apk-file APK_FILE
+                        Path to APK to analyse.
+  --cache-path CACHE_PATH
+                        Directory where temporary files are saved.
+  --download-path DOWNLOAD_PATH
+                        Directory where downloaded files are saved.
   --log-path LOG_PATH   Directory where log files are saved.
+  --output-path OUTPUT_PATH
+                        Directory where generated files are saved.
+  --arch {arm,arm64,x86,x86_64}
+                        Android device architecture. Default: x86
+  --decompiler {cfr,procyon}
+                        DEX to JAR decompiler. Default: disabled
+  --frida-version FRIDA_VERSION
+                        Specify which frida version to use.Note: must match
+                        python package version.
   -s SCRIPT, --script SCRIPT
                         Script to execute.
-  -a APP, --app APP     App name to instrument.
+  --file-exclusions FILE_EXCLUSIONS
+                        Ignore these paths/files on static analysis
+  --directory-exclusions DIRECTORY_EXCLUSIONS
+                        Ignore these directories on static analysis.
+  --custom-checks CUSTOM_CHECKS
+                        Additional checks to smali code.
+  --java_home JAVA_HOME
+                        Directory that contains Java executables. [env var:
+                        JAVA_HOME]
+  --android_sdk ANDROID_SDK
+                        Directory that contains Android SDK executables. [env
+                        var: ANDROID_SDK]
+```
+
+## Credits
+
+https://github.com/clviper/droidstatx
+
+https://github.com/b-mueller/apkx
+
+https://www.frida.re/docs/android/
+
+https://github.com/frida/frida-python/tree/master/examples
+
+https://github.com/11x256/frida-android-examples
+
+http://asvid.github.io/android-frida-hacking
+
+https://github.com/b-mueller/frida-detection-demo
+
+- Dex2jar - https://github.com/pxb1988/dex2jar
+- CFR - http://www.benf.org/other/cfr/

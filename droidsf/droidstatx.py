@@ -116,7 +116,10 @@ class DroidStatX:
         self.output_path = os.path.join(args.output_path, self.output_name)
 
         log.info("Baksmaling DEX files")
-        self.bakmali(args)
+        if not self.baksmali(args):
+            log.error("Failed to perform static analysis.")
+            return
+
         self.smaliChecks = SmaliChecks(args, self.output_name)
 
         log.info("Analysing manifest.xml")
@@ -170,16 +173,36 @@ class DroidStatX:
             self.allowBackup = False
         else:
             self.allowBackup = True
-        if self.app_xml.get(NS_ANDROID + "networkSecurityConfig") is not None:
-            self.networkSecurityConfig = True
-            self.parseNetworkSecurityConfigFile()
 
-    def parseNetworkSecurityConfigFile(self):
-        path = os.path.join(self.output_path, "/res/xml/network_security_config.xml")
-        tree = ET.parse(path)
-        root = tree.getroot()
+        networkSecurityConfig = self.app_xml.get(NS_ANDROID + "networkSecurityConfig")
+        if networkSecurityConfig:
+            self.networkSecurityConfig = True
+            self.parseNetworkSecurityConfigFiles(networkSecurityConfig)
+
+    def parseNetworkSecurityConfigFiles(self, namespace):
+        xml_path = os.path.join(self.output_path, "res/xml")
+        config_file = os.path.join(xml_path, "network_security_config.xml")
+
+        xml_files = []
+        if os.path.isfile(config_file):
+            xml_files.append(config_file)
+        elif os.path.isdir(xml_path):
+            for root, dirs, files in os.walk(xml_path):
+                xml_files = [os.path.join(root, f) for f in files if f.endswith(".xml")]
+                # for name in files:
+                #     xml_files.append(os.path.join(root, name))
+
+        for file_path in xml_files:
+            tree = ET.parse(file_path)
+            root = tree.getroot()
+            if self.parseNetworkSecurityConfigFile(root):
+                log.info("Found network security config (%s) file: %s", namespace, file_path)
+
+    def parseNetworkSecurityConfigFile(self, root):
+        foundConfig = False
+
         for child in root:
-            if child.tag == "base-config":
+            if child.tag == "base-config" or child.tag == "domain-config":
                 domainConfig = {
                     'domains': [],
                     'allowClearText': True,
@@ -202,31 +225,9 @@ class DroidStatX:
                         if 'expiration' in sub.attrib:
                             domainConfig['pinningExpiration'] = sub.attrib['expiration']
                 self.networkSecurityConfigDomains.append(domainConfig)
-                log.info(domainConfig)
-            if child.tag == "domain-config":
-                domainConfig = {
-                    'domains': [],
-                    'allowClearText': True,
-                    'allowUserCA': False,
-                    'pinning': False,
-                    'pinningExpiration': ''
-                }
-                if 'cleartextTrafficPermitted' in child.attrib:
-                    if child.attrib['cleartextTrafficPermitted'] == "false":
-                        domainConfig['allowClearText'] = False
-                for sub in child:
-                    if sub.tag == "domain":
-                        domainConfig['domains'].append(sub.text)
-                    if sub.tag == "trust-anchors":
-                        for certificates in sub:
-                            if certificates.attrib['src'] == "user":
-                                domainConfig['allowUserCA'] = True
-                    if sub.tag == "pin-set":
-                        domainConfig['pinning'] = True
-                        if 'expiration' in sub.attrib:
-                            domainConfig['pinningExpiration'] = sub.attrib['expiration']
-                self.networkSecurityConfigDomains.append(domainConfig)
-                log.info(domainConfig)
+                foundConfig = True
+
+        return foundConfig
 
     # Create the list of permissions used by the package
     def extractPermissions(self):
@@ -247,12 +248,14 @@ class DroidStatX:
                         self.secretCodes.append(data.get(NS_ANDROID + "host"))
 
     # Create a global list of activities with the excludeFromRecentes attribute
+    # XXX: Checked with sweatcoin
     def extractActivitiesWithExcludeFromRecents(self):
         for activity in self.app_xml.findall("activity"):
             if activity.get(NS_ANDROID + "excludeFromRecents") == 'true':
                 self.activitiesWithExcludeFromRecents.append(activity.get(NS_ANDROID + "name"))
 
     # Create a global list of activities that do not have the FLAG_SECURE or the excludeFromRecents attribute set.
+    # XXX: Checked with sweatcoin / de.zertapps.dvhma.featherweight
     def extractActivitiesWithoutSecureFlag(self):
         activitiesWithoutSecureFlag = []
         for activity in self.apk.get_activities():
@@ -262,8 +265,11 @@ class DroidStatX:
                 except UnicodeEncodeError as e:
                     activity = activity.encode('ascii', 'xmlcharrefreplace')
                 self.activitiesWithoutFlagSecure.append(activity)
+            else:
+                log.warning("Flag secure found on: %s", activity)
 
     # Return the ProtectionLevel of a particular Permission
+    # XXX: Unused
     def determinePermissionProtectionLevel(self, targetPermission):
         for permission in self.manifest_xml.findall("permission"):
             if permission.get(NS_ANDROID + "name") == targetPermission:
@@ -319,6 +325,8 @@ class DroidStatX:
             if activity.get(NS_ANDROID + "exported") == 'true':
                 self.extractComponentPermission(activity)
                 if self.smaliChecks.doesActivityExtendsPreferenceActivity(activityName) is True:
+                    log.warning("HEREEEEEEEEEEEEEEEEEEEEEEE11111")
+                    log.warning(activityName)
                     if self.smaliChecks.doesPreferenceActivityHasValidFragmentCheck(activityName) is True:
                         try:
                             activityName.encode("ascii")
@@ -339,7 +347,10 @@ class DroidStatX:
                     self.extractIntentFilters(filters, activity)
                     self.extractComponentPermission(activity)
                     self.exportedActivities.append(activityName)
+                    log.warning("HEREEEEEEEEEEEEEEEEEEEEEEE22222")
+                    log.warning(activityName)
                     if self.smaliChecks.doesActivityExtendsPreferenceActivity(activityName) is True:
+                        log.warning("HEREEEEEEEEEEEEEEEEEEEEEEE33333")
                         if self.smaliChecks.doesPreferenceActivityHasValidFragmentCheck(activityName) is True:
                             try:
                                 activityName.encode("ascii")
@@ -377,6 +388,11 @@ class DroidStatX:
     def extractExportedProviders(self):
         for provider in self.app_xml.findall("provider"):
             providerName = provider.get(NS_ANDROID + "name")
+
+            # Hack: some apps have their manifest with relative provider names
+            if providerName.startswith("."):
+                providerName = provider.get(NS_ANDROID + "authorities")
+
             self.checkForSecretCodes(provider)
             if provider.get(NS_ANDROID + "exported") == 'true':
                 self.exportedProviders.append(providerName)
@@ -468,24 +484,14 @@ class DroidStatX:
     # -b : Don't write out debug info
     # -f : Force rewrite
     # -o : Output folder
-    def bakmali(self, args):
-        apktool_jar = None
-        for root, dirs, files in os.walk(args.download_path):
-            for name in files:
-                if "apktool" in name:
-                    apktool_jar = name
-                    break
-
-        if not apktool_jar:
-            log.error("Unable to find Apktool in workspace.")
-            return False
-
-        if os.path.isfile(os.path.join(self.output_path, ".droidsf")):
+    def baksmali(self, args):
+        trail_file_path = os.path.join(self.output_path, ".droidsf")
+        if not args.force and os.path.isfile(trail_file_path):
             log.debug("Skipped Baksmali, found previous output.")
             return True
 
-        apktool_path = os.path.join(args.download_path, apktool_jar)
-        cmd = Subprocess(["java", "-Xms64m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", "/tmp/", args.apk_file, "-o", self.output_path])
+        apktool_path = os.path.join(args.download_path, args.apktool_jar)
+        cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", "/tmp/", args.apk_file, "-o", self.output_path])
 
         if not cmd.success:
             return False

@@ -10,6 +10,7 @@ import frida
 
 from droidsf.droidstatx import DroidStatX
 from droidsf.subprocess import Subprocess, SubprocessShell
+import droidsf.config
 import droidsf.utils
 
 log = logging.getLogger('droidsf')
@@ -46,8 +47,7 @@ on_resume_handlers = {
 
 
 def adb_launch_frida(args):
-    frida_server = "frida-server-" + args.frida_version + "-android-" + args.arch
-    frida_server_path = os.path.join(args.download_path, frida_server)
+    frida_server_path = os.path.join(args.download_path, args.frida_server_bin)
 
     if not os.path.isfile(frida_server_path):
         log.critical("Unable to find %s on workspace. Run: python install.py")
@@ -84,14 +84,37 @@ def adb_kill_frida():
         log.info("Killed frida-server on device.")
 
 
+# def java_decompile(args):
+#     if not args.decompiler:
+#         log.debug("Skipped DEX to JAR decompilation.")
+#         return
+
+#     if args.decompiler == "cfr":
+#         cfr_path = os.path.join(args.download_path, args.cfr_jar)
+#         cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", "/tmp/", args.apk_file, "-o", self.output_path])
+#         cmd = Subprocess(['java', '-Xms512m', '-Xmx1024m', "-jar", cfr_path, 'org.benf.cfr.reader.Main', ext_path + '/' + jar_filename, '--outputdir', src_path, '--caseinsensitivefs', 'true', '--silent', 'true'])
+#     elif (decompiler == 'procyon'):
+#         subprocess.call(['java','-Xms512m', '-Xmx1024m', '-cp', lib_path, 'com.strobel.decompiler.DecompilerDriver', '-jar', ext_path + '/' + jar_filename, '--o', src_path], stdout=FNULL)
+#     inputs = ["killall -s SIGKILL frida-server frida-helper-32"]
+#     cmd = SubprocessShell(["adb", "shell"], inputs)
+#     if cmd.success:
+#         log.info("Killed frida-server on device.")
+
+
 if __name__ == '__main__':
     print(droidsf.utils.HEADER)
     args = droidsf.utils.get_args()
 
-    droidsf.utils.setup_workspace(args)
-    droidsf.utils.setup_logging(args, log)
+    try:
+        droidsf.utils.setup_workspace(args)
+        droidsf.utils.setup_logging(args, log)
+    except Exception as e:
+        log.exception("Unable to setup workspace environment: %s", e)
+        sys.exit(1)
 
-    droidsf.utils.setup_frida(args.frida_version)
+    droidsf.config.init(args)
+
+    # DroidSF framework initialized
 
     droidstatx = DroidStatX(args)
     app_package = droidstatx.apk.get_package()

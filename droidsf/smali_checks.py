@@ -45,10 +45,7 @@ class SmaliChecks:
         self.file_exclusions = args.file_exclusions
         self.apkPath = os.path.join(args.output_path, apkName)
         for root, dirs, files in os.walk(self.apkPath, topdown=False):
-            for name in dirs:
-                if "smali" in name:
-                    path = os.path.join(root, name)
-                    self.smaliPaths.append(path)
+            self.smaliPaths = [os.path.join(root, d) for d in dirs if "smali" in d]
 
         if args.verbose:
             self.getMethod = droidsf.utils.timeit(self.getMethod)
@@ -68,7 +65,7 @@ class SmaliChecks:
         self.checkCustomPinningImplementation()
         self.findKeystoreUsage()
         self.findDynamicRegisteredBroadcastReceivers()
-        self.findPathTraversalContentProvider()
+        # self.findPathTraversalContentProvider()
         self.findCustomChecks(args.custom_checks)
 
     def getFileContent(self, filePath):
@@ -94,12 +91,12 @@ class SmaliChecks:
                 res.append(line)
                 inside = True
 
-        if not res:
-            log.info("getMethod( %s , %s ) empty on %s", startPattern, endPattern, filePath)
-        else:
-            log.debug("getMethod( %s , %s ) on %s matched %d lines. ", startPattern, endPattern, filePath, len(res))
-            # if len(res) < 10:
-            #     log.info("\n%s", "\n".join(res))
+        # if not res:
+        #     log.info("start: %s | end: %s - found nothing on %s", startPattern, endPattern, filePath)
+        # else:
+        #     log.debug("start: %s | end: %s - on %s matched %d lines. ", startPattern, endPattern, filePath, len(res))
+        # if len(res) < 10:
+        #     log.info("\n%s", "\n".join(res))
         return res
 
     # https://www.tutorialspoint.com/sed/sed_pattern_range.htm
@@ -112,11 +109,10 @@ class SmaliChecks:
         methodContent = out.strip().split('\n')
         methodContent = [l.strip() for l in methodContent if l.strip()]
 
-        if not methodContent:
-            log.info("sed search %s empty on %s", methodRegEx, filePath)
-        else:
-            log.debug("sed search %s on %s matched %d lines. ", methodRegEx, filePath, len(methodContent))
-
+        # if not methodContent:
+        #     log.info("sed search %s empty on %s", methodRegEx, filePath)
+        # else:
+        #     log.debug("sed search %s on %s matched %d lines. ", methodRegEx, filePath, len(methodContent))
         # if len(methodContent) < 10:
         #     log.info("\n%s", "\n".join(methodContent))
         return methodContent
@@ -133,6 +129,7 @@ class SmaliChecks:
         except:
             return ""
 
+    # XXX: working
     def isMethodEmpty(self, instructions):
         for i in range(len(instructions) - 1, 0, -1):
             if instructions[i] == '.end method':
@@ -143,14 +140,15 @@ class SmaliChecks:
                 else:
                     return False
 
+    # XXX: Unused
     def hasOperationProceed(self, instructions):
         for i in range(len(instructions) - 1, 0, -1):
             if 'Landroid/webkit/SslErrorHandler;->proceed()V' in instructions[i]:
                 return True
-            else:
-                continue
+
         return False
 
+    # XXX: working
     def doesMethodReturnNull(self, instructions):
         for i in range(len(instructions) - 1, 0, -1):
             if instructions[i] == "return-object v0":
@@ -167,11 +165,13 @@ class SmaliChecks:
                 continue
         return False
 
+    # XXX: working
     def doesMethodReturnTrue(self, instructions):
         maxLen = len(instructions) - 1
         for i in range(maxLen, 0, -1):
             if instructions[i] == "return v0":
                 if i - 1 >= 0 and instructions[i - 1] == "const/4 v0, 0x1":
+                    log.warning("returns true")
                     return True
                 else:
                     return False
@@ -180,6 +180,7 @@ class SmaliChecks:
         return False
 
     # Returns the register that has the target value assigned
+    # XXX: Working
     def searchRegisterByAssignedValue(self, method, value):
         register = ""
         for instruction in method:
@@ -191,6 +192,7 @@ class SmaliChecks:
         return register
 
     # Returns the assigned value to the targer register.
+    # XXX: unused
     def getAssignedValueByRegister(self, instructions, register):
         register = ""
         for instruction in instructions:
@@ -199,34 +201,44 @@ class SmaliChecks:
                 registerBegin = instruction.find(" ", 0, registerEnd) + 1
                 register = instruction[registerBegin:registerEnd]
                 break
+        log.warning("Found: %s", register)
         return register
 
+    # XXX: called externally
     def doesActivityExtendsPreferenceActivity(self, activity):
         activity = activity.replace(".", "/")
         grep = Grep("\.class public([a-zA-Z\s]*)L" + activity + ";", self.dir_exclusions, self.file_exclusions)
         res = grep.check_directories(self.smaliPaths)
-
         for file_path in res:
+            log.warning("Activity code on: %s", file_path)
             grep = Grep("\.super Landroid\/preference\/PreferenceActivity;", self.dir_exclusions, self.file_exclusions)
-            return grep.check_file(file_path)
+            x = grep.check_file(file_path)
+            log.warning("Extends: %s", x)
+            return x
 
+    # XXX: called externally
     def doesPreferenceActivityHasValidFragmentCheck(self, activity):
         activity = activity.replace(".", "/")
         grep = Grep("\.class public([a-zA-Z\s]*)L" + activity + ";", self.dir_exclusions, self.file_exclusions)
 
         res = grep.check_directories(self.smaliPaths)
-
+        log.warning("TEST")
         for file_path in res:
             grep = Grep("\.super Landroid\/preference\/PreferenceActivity;", self.dir_exclusions, self.file_exclusions)
             if grep.check_file(file_path):
+                log.warning("PreferenceActivity on: %s", file_path)
                 isValidFragmentFunction = self.getMethodCompleteInstructions('/.method protected isValidFragment(Ljava\/lang\/String;)Z/,/^.end method/p', file_path)
                 isValidFragmentFunction = self.getMethod(r"\.method protected isValidFragment\(Ljava\/lang\/String;\)Z", r"\.end method", file_path)
+
+                log.warning("Found isValidFragment(): %s", isValidFragmentFunction)
                 if isValidFragmentFunction:
                     return True
                 else:
                     return False
 
-    # Checked
+    # XXX: working (called externally)
+    # https://developer.android.com/reference/android/view/WindowManager.LayoutParams.html#FLAG_SECURE    
+    # https://stackoverflow.com/questions/32440679/flag-secure-not-working-on-dialogfragment-with-style-as-dialogfragment-style-no/37491066#37491066
     def doesActivityHasFlagSecure(self, activity):
         activity = activity.replace(".", "/")
         end = activity.rfind('/') + 1
@@ -239,14 +251,17 @@ class SmaliChecks:
 
             for file_path in res:
                 methodInstructions = self.getMethodCompleteInstructions('/.method \([a-zA-Z]* \)onCreate(Landroid\/os\/Bundle;)V/,/^.end method/p', file_path)
-                method = self.getMethod(r"\.method [a-zA-Z]* onCreate\(Landroid\/os\/Bundle;\)V", r"\.end method", file_path)
+                method = self.getMethod(r"\.method ([a-zA-Z]*) onCreate\(Landroid\/os\/Bundle;\)V", r"\.end method", file_path)
                 register = self.searchRegisterByAssignedValue(method, "0x2000")
                 if register.strip() == "":
                     return False
                 else:
-                    grep = Grep("invoke-virtual.*" + register + ".*Landroid\/view\/Window;->setFlags\(II\)V", self.dir_exclusions, self.file_exclusions)
-                    return grep.check_file(file_path)
+                    # ex: invoke-virtual {p1, v0, v0}, Landroid/view/Window;->setFlags(II)V
+                    grep = Grep("invoke-virtual(.*)" + register + "(.*)Landroid\/view\/Window;->setFlags\(II\)V", self.dir_exclusions, self.file_exclusions)
+                    x = grep.check_file(file_path)
+                    return x
 
+    # XXX: Checked with com.htbridge.pivaa
     def findRegisterAssignedValueFromIndexBackwards(self, instructionsList, register, index):
         for pointer in range(index, 0, -1):
             if register in instructionsList[pointer] and ("const" in instructionsList[pointer] or "sget-object" in instructionsList[pointer]):
@@ -269,18 +284,16 @@ class SmaliChecks:
                 return ""
         return registers
 
+    # XXX: Working
     def findInstructionIndex(self, instructionsList, instructionToSearch):
         indexList = []
         regex = re.compile(instructionToSearch)
         for index, instruction in enumerate(instructionsList):
-            m = re.search(regex, instruction)
-            try:
-                output = m.group(0)
+            if re.search(regex, instruction):
                 indexList.append(index)
-            except:
-                continue
         return indexList
 
+    # XXX: Checked with ca.mobile.explorer
     def findDynamicRegisteredBroadcastReceivers(self):
         grep = Grep(";->registerReceiver\(Landroid\/content\/BroadcastReceiver;Landroid\/content\/IntentFilter;\)", self.dir_exclusions, self.file_exclusions)
 
@@ -288,6 +301,7 @@ class SmaliChecks:
 
         self.dynamicRegisteredBroadcastReceiversLocations.extend(res)
 
+    # XXX: Checked with com.android.insecurebank / ca.mobile.explorer
     def findEncryptionFunctions(self):
         grep = Grep("invoke-virtual {(.*)}, Ljavax\/crypto\/Cipher;->init\(ILjava\/security\/Key", self.dir_exclusions, self.file_exclusions)
 
@@ -309,6 +323,7 @@ class SmaliChecks:
                         if location not in self.undeterminedCryptographicFunctionsLocation:
                             self.undeterminedCryptographicFunctionsLocation.append(location)
 
+    # XXX: Checked with ca.mobile.explorer
     def findKeystoreUsage(self):
         grep = Grep("invoke-virtual {(.*)}, Ljava\/security\/KeyStore;->getEntry\(Ljava\/lang\/String;Ljava\/security\/KeyStore\$ProtectionParameter;\)Ljava\/security\/KeyStore\$Entry", self.dir_exclusions, self.file_exclusions)
 
@@ -316,6 +331,7 @@ class SmaliChecks:
 
         self.keystoreLocations.extend(res)
 
+    # XXX: Checked with com.htbridge.pivaa
     def findWebViewLoadUrlUsage(self):
         grep = Grep("Landroid\/webkit\/WebView;->loadUrl\(Ljava\/lang\/String;\)V", self.dir_exclusions, self.file_exclusions)
 
@@ -325,6 +341,7 @@ class SmaliChecks:
 
     # *** Improper Platform Usage ***
 
+    # XXX: unused
     def findPathTraversalContentProvider(self):
         grep = Grep("\.super Landroid\/content\/ContentProvider;", self.dir_exclusions, self.file_exclusions)
 
@@ -336,8 +353,10 @@ class SmaliChecks:
             if len(indexList) > 0:
                 indexList = self.findInstructionIndex(instructions, "")
 
+    # https://support.google.com/faqs/answer/7496913?hl=en
+    # XXX: Checked with com.mwr.example.sieve
     def determineContentProviderPathTraversal(self, provider):
-        provider = provider.replace("$", "\$").replace(".", "/")
+        provider = provider.replace("$", "\$").replace(".", "\/")
         grep = Grep("\.class .* L" + provider, self.dir_exclusions, self.file_exclusions)
 
         res = grep.check_directories(self.smaliPaths)
@@ -345,12 +364,17 @@ class SmaliChecks:
         for location in res:
             instructions = self.getMethodCompleteInstructions('/.method public openFile(Landroid\/net\/Uri;Ljava\/lang\/String;)Landroid\/os\/ParcelFileDescriptor;/,/^.end method/p', location)
             method = self.getMethod(r"\.method public openFile\(Landroid\/net\/Uri;Ljava\/lang\/String;\)Landroid\/os\/ParcelFileDescriptor;", r"\.end method", location)
-            indexList = self.findInstructionIndex(instructions, "Ljava\/io\/File;->getCanonicalPath\(\)")
-            if len(indexList) > 0:
+            if not method:
+                continue
+
+            indexList = self.findInstructionIndex(method, "Ljava\/io\/File;->getCanonicalPath\(\)")
+            # If a file is being loaded with getCanonicalPath(), then it is probably safe
+            if not indexList:
                 self.vulnerableContentProvidersPathTraversalLocations.append(location)
 
+    # XXX: Checked with com.android.insecurebank
     def determineContentProviderSQLi(self, provider):
-        provider = provider.replace("$", "\$").replace(".", "/")
+        provider = provider.replace("$", "\$").replace(".", "\/")
         grep = Grep("\.class .* L" + provider, self.dir_exclusions, self.file_exclusions)
 
         res = grep.check_directories(self.smaliPaths)
@@ -359,12 +383,14 @@ class SmaliChecks:
             instructions = self.getMethodCompleteInstructions('/.method public query(Landroid\/net\/Uri;\[Ljava\/lang\/String;Ljava\/lang\/String;\[Ljava\/lang\/String;Ljava\/lang\/String;)Landroid\/database\/Cursor;/,/^.end method/p', location)
             method = self.getMethod(r"\.method public query\(Landroid\/net\/Uri;\[Ljava\/lang\/String;Ljava\/lang\/String;\[Ljava\/lang\/String;Ljava\/lang\/String;\)Landroid\/database\/Cursor;", r"\.end method", location)
 
-            indexList = self.findInstructionIndex(instructions, "invoke-virtual(.*) {(.*)}, Landroid\/database\/sqlite\/SQLiteDatabase;->query")
+            indexList = self.findInstructionIndex(method, "invoke-virtual(.*) {(.*)}, Landroid\/database\/sqlite\/SQLiteDatabase;->query")
+            indexList.extend(self.findInstructionIndex(instructions, "invoke-virtual(.*) {(.*)}, Landroid\/database\/sqlite\/SQLiteQueryBuilder;->query\(Landroid/database/sqlite/SQLiteDatabase;"))
             if len(indexList) > 0:
-                indexList = self.findInstructionIndex(instructions, "\?")
+                indexList = self.findInstructionIndex(method, "\?")
                 if len(indexList) == 0:
                     self.vulnerableContentProvidersSQLiLocations.append(location)
 
+    # XXX: Checked with sweatcoin / snapchat_9.11
     def findWeakCryptographicUsage(self):
         grep = Grep("Ljavax\/crypto\/Cipher;->getInstance\(Ljava\/lang\/String;\)Ljavax\/crypto\/Cipher;", self.dir_exclusions, self.file_exclusions)
 
@@ -382,6 +408,7 @@ class SmaliChecks:
                     elif "DES" in transformationValue:
                         self.DESLocations.append(location)
 
+    # XXX: Checked with com.htbridge.pivaa
     def findPropertyEnabledWebViews(self):
         grep = Grep(";->getSettings\(\)Landroid\/webkit\/WebSettings;", self.dir_exclusions, self.file_exclusions)
 
@@ -413,6 +440,7 @@ class SmaliChecks:
                     if value == "0x1":
                         self.universalAccessFromFileURLEnabledWebviewsLocations.append(location)
 
+    # XXX: Checked with dvhma.featherweight
     def findWebviewJavascriptInterfaceUsage(self):
         grep = Grep(";->addJavascriptInterface\(Ljava\/lang\/Object;Ljava\/lang\/String;\)V", self.dir_exclusions, self.file_exclusions)
 
@@ -429,7 +457,7 @@ class SmaliChecks:
     # *** Insecure Communication Checks ***
 
     # Check for the implementation of custom HostnameVerifiers
-    # XXX: Checked
+    # XXX: Checked with com.htbridge.pivaa
     def checkInsecureHostnameVerifier(self):
         # .implements Ljavax/net/ssl/HostnameVerifier;
         grep = Grep("\.implements Ljavax\/net\/ssl\/HostnameVerifier;", self.dir_exclusions, self.file_exclusions)
@@ -446,6 +474,7 @@ class SmaliChecks:
                 self.vulnerableHostnameVerifiers.append(location)
 
     # Check for the presence of the custom function that allows to bypass SSL errors in WebViews
+    # XXX: Checked with dvhma.featherweight
     def checkWebviewSSLErrorBypass(self):
         grep = Grep("Landroid\/webkit\/SslErrorHandler;->proceed\(\)V", self.dir_exclusions, self.file_exclusions)
 
@@ -454,6 +483,7 @@ class SmaliChecks:
         self.vulnerableWebViewSSLErrorBypass.extend(res)
 
     # Check for the presence of custom TrustManagers that are vulnerable.
+    # XXX: Checked with com.htbridge.pivaa
     def checkVulnerableTrustManagers(self):
         grep = Grep("\.method public checkClientTrusted\(\[Ljava\/security\/cert\/X509Certificate;Ljava\/lang\/String;\)V", self.dir_exclusions, self.file_exclusions)
 
@@ -471,7 +501,6 @@ class SmaliChecks:
             grep = Grep("\.method public getAcceptedIssuers\(\)\[Ljava\/security\/cert\/X509Certificate;", self.dir_exclusions, self.file_exclusions)
 
             if grep.check_file(location):
-
                 methodInstructions = self.getMethodCompleteInstructions('/.method public getAcceptedIssuers()\[Ljava\/security\/cert\/X509Certificate;/,/^.end method/p', location)
                 method = self.getMethod(r"\.method public getAcceptedIssuers\(\)\[Ljava\/security\/cert\/X509Certificate;", r"\.end method", location)
                 if methodInstructions == "":
@@ -489,6 +518,7 @@ class SmaliChecks:
                         self.vulnerableTrustManagers.append(location)
 
     # Check for the presence of setHostnameVerifier with ALLOW_ALL_HOSTNAME_VERIFIER
+    # XXX: Checked with sweatcoin
     def checkVulnerableHostnameVerifiers(self):
         grep = Grep("invoke-virtual {(.*)}, Lorg\/apache\/http\/conn\/ssl\/SSLSocketFactory;->setHostnameVerifier\(Lorg\/apache\/http\/conn\/ssl\/X509HostnameVerifier;\)V", self.dir_exclusions, self.file_exclusions)
 
@@ -504,6 +534,7 @@ class SmaliChecks:
                         self.vulnerableSetHostnameVerifiers.append(location)
 
     # Check for SocketFactory without Hostname Verify
+    # https://op-co.de/blog/posts/java_sslsocket_mitm/
     def checkVulnerableSockets(self):
         grep = Grep("Ljavax\/net\/SocketFactory;->createSocket\(Ljava\/lang\/String;I\)Ljava\/net\/Socket;", self.dir_exclusions, self.file_exclusions)
 
@@ -531,6 +562,7 @@ class SmaliChecks:
                 self.okHttpCertificatePinningLocation.append(location)
 
     # Check for custom Certificate Pinning Implementation
+    # XXX: Checked with com.application.zomato
     def checkCustomPinningImplementation(self):
         grep = Grep("invoke-virtual {(.*)}, Ljavax\/net\/ssl\/TrustManagerFactory;->init\(Ljava\/security\/KeyStore;\)V", self.dir_exclusions, self.file_exclusions)
 

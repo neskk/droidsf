@@ -1,15 +1,17 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+import hashlib
 import json
 import logging
 import lzma
-import hashlib
 import os
 import socket
 import struct
 import sys
 import time
+import urllib.parse
+import zipfile
 from timeit import default_timer
 
 import configargparse
@@ -74,9 +76,18 @@ def get_args():
     p.add_argument("-v", "--verbose",
                    help="Run in the verbose mode.",
                    action="store_true")
+    p.add_argument("--force",
+                   help="Overrides previously generated files.",
+                   action="store_true")
+    p.add_argument("--force-download",
+                   help="Overrides previously downloaded files.",
+                   action="store_true")
     p.add_argument("-a", "--apk-file",
                    required=True,
                    help="Path to APK to analyse.")
+    p.add_argument("--cache-path",
+                   help="Directory where temporary files are saved.",
+                   default="downloads/cache")
     p.add_argument("--download-path",
                    help="Directory where downloaded files are saved.",
                    default="downloads")
@@ -90,6 +101,10 @@ def get_args():
                    help="Android device architecture. Default: x86",
                    default="x86",
                    choices=("arm", "arm64", "x86", "x86_64"))
+    p.add_argument("--decompiler",
+                   help="DEX to JAR decompiler. Default: disabled",
+                   default=None,
+                   choices=("cfr", "procyon"))
     p.add_argument("--frida-version",
                    help=("Specify which frida version to use."
                          "Note: must match python package version."),
@@ -111,10 +126,10 @@ def get_args():
                    action="append")
     p.add_argument("--java_home",
                    help="Directory that contains Java executables.",
-                   env_var='JAVA_HOME')
+                   env_var="JAVA_HOME")
     p.add_argument("--android_sdk",
                    help="Directory that contains Android SDK executables.",
-                   env_var='ANDROID_SDK')
+                   env_var="ANDROID_SDK")
 
     args = p.parse_args()
 
@@ -129,8 +144,9 @@ def get_args():
     return args
 
 # Create necessary work directories
+# Note: manipulates 'args' object
 def setup_workspace(args):
-    pathnames = ["download_path", "log_path", "output_path"]
+    pathnames = ["cache_path", "download_path", "log_path", "output_path"]
     args_dict = vars(args)
     for pathname in pathnames:
         rel_path = args_dict[pathname]
@@ -145,18 +161,20 @@ def setup_logging(args, log):
     date = time.strftime("%Y%m%d_%H%M%S")
     filename = os.path.join(args.log_path, "{}-droidsf.log".format(date))
     filelog = logging.FileHandler(filename)
-    formatter_full = logging.Formatter(
-        "%(asctime)s [%(threadName)12s][%(module)16s][%(levelname)8s] %(message)s")
-    formatter_short = logging.Formatter(
-        "[%(levelname)8s] %(message)s")
+
+    full_f = "%(asctime)s [%(threadName)12s][%(module)14s][%(levelname)8s] %(funcName)s: %(message)s"
+    formatter_full = logging.Formatter(full_f)
     filelog.setFormatter(formatter_full)
     log.addHandler(filelog)
 
     if args.verbose:
         log.setLevel(logging.DEBUG)
-        log.debug("Running in verbose mode (-v).")
+        short_f = "[%(levelname)8s] %(funcName)s: %(message)s"
     else:
         log.setLevel(logging.INFO)
+        short_f = "[%(levelname)8s] %(message)s"
+
+    formatter_short = logging.Formatter(short_f)
 
     # Define log level for dependency modules
     logging.getLogger("requests").setLevel(logging.WARNING)
@@ -175,22 +193,6 @@ def setup_logging(args, log):
 
     log.addHandler(stdout_hdlr)
     log.addHandler(stderr_hdlr)
-
-def setup_frida(target_version):
-    try:
-        import frida
-        frida_version = frida.__version__
-        log.debug("Found frida python package installed: %s", frida_version)
-        if frida_version != target_version:
-            log.critical("Found conflicting frida versions: "
-                         "%s (python package), %s (frida-server).",
-                         frida_version, target_version)
-            log.critical("Run: pip install -r requirements.txt --upgrade")
-            sys.exit(1)
-    except ImportError as e:
-        log.critical("Unable to find frida python package installed.")
-        log.critical("Run: pip install -r requirements.txt --upgrade")
-        sys.exit(1)
 
 def load_file(file_path, mode="r"):
     content = ""
@@ -213,21 +215,22 @@ def export_file(output_path, filename, content, mode="w"):
         else:
             file.write(content)
 
-def download_file(url, output_path, chunk_size=8192):
+def download_file(url, output_path, override=False, chunk_size=16 * 1024):
     filename = url.split("/")[-1]
     file_path = os.path.join(output_path, filename)
 
-    if os.path.isfile(file_path):
-        return filename
-
     # Use stream=True parameter to enable chunked file download
-    with requests.get(url, stream=True) as r:
+    with requests.get(url, stream=True, timeout=3) as r:
         r.raise_for_status()
         # Download progress report
         total_bytes = int(r.headers["content-length"])
         downloaded_bytes = 0
 
+        if os.path.isfile(file_path) and os.path.getsize(file_path) == total_bytes and not override:
+            return filename
+
         with open(file_path, "wb") as f:
+            f.truncate()
             for chunk in r.iter_content(chunk_size=chunk_size):
                 if not chunk:
                     # Filter out keep-alive new chunks
@@ -241,20 +244,50 @@ def download_file(url, output_path, chunk_size=8192):
 
                 if downloaded_bytes >= total_bytes:
                     sys.stdout.write("\n")
+                    break
 
     return filename
 
-def get_json(url):
-    r = requests.get(url)
-    return r.json()
+def get_html(url, cache_path, ttl=3600):
+    file_url = url.replace("://", "_").replace("/", "_")
+    file_url = urllib.parse.quote(file_url) + ".html"
+    file_path = os.path.join(cache_path, file_url)
 
-def extract_xz(path, filename):
+    if os.path.isfile(file_path):
+        last_modified = os.path.getmtime(file_path)
+        filesize = os.path.getsize(file_path)
+        if filesize > 0 and time.time() < last_modified + ttl:
+            return load_file(file_path)
+
+    r = requests.get(url, timeout=3)
+    data = r.text
+    export_file(cache_path, file_url, data)
+    return data
+
+def get_json(url, cache_path, ttl=3600):
+    file_url = url.replace("://", "_").replace("/", "_")
+    file_url = urllib.parse.quote(file_url) + ".json"
+    file_path = os.path.join(cache_path, file_url)
+
+    if os.path.isfile(file_path):
+        last_modified = os.path.getmtime(file_path)
+        filesize = os.path.getsize(file_path)
+        if filesize > 0 and time.time() < last_modified + ttl:
+            data = load_file(file_path)
+            return json.loads(data)
+
+    r = requests.get(url, timeout=3)
+    data = r.text
+    export_file(cache_path, file_url, data)
+    return json.loads(data)
+
+def extract_xz(path, filename, override=False):
     input_path = os.path.join(path, filename)
 
     extracted_filename = os.path.splitext(filename)[0]
     output_path = os.path.join(path, extracted_filename)
 
-    if os.path.isfile(output_path):
+    if os.path.isfile(output_path) and not override:
         return extracted_filename
 
     with lzma.open(input_path) as f, open(output_path, "wb") as fout:
@@ -262,6 +295,27 @@ def extract_xz(path, filename):
         fout.write(data)
 
     return extracted_filename
+
+def extract_zip(path, filename, override=False, includes=""):
+    input_path = os.path.join(path, filename)
+
+    zip_path = os.path.splitext(filename)[0]
+    output_path = os.path.join(path, zip_path)
+
+    if os.path.isdir(output_path) and not override:
+        return zip_path
+
+    with zipfile.ZipFile(input_path, 'r') as f:
+        files = f.namelist()
+        if includes:
+            files = [n for n in files if includes in n]
+
+        if files[0].startswith(zip_path):
+            output_path = path
+
+        f.extractall(output_path, files)
+
+    return zip_path
 
 # Return the SHA256 of the file.
 def sha256_checksum(file_path):
