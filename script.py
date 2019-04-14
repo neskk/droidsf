@@ -12,6 +12,7 @@ from droidsf.droidstatx import DroidStatX
 from droidsf.subprocess import Subprocess, SubprocessShell
 import droidsf.config
 import droidsf.utils
+import droidsf.apk
 
 log = logging.getLogger('droidsf')
 
@@ -84,23 +85,6 @@ def adb_kill_frida():
         log.info("Killed frida-server on device.")
 
 
-# def java_decompile(args):
-#     if not args.decompiler:
-#         log.debug("Skipped DEX to JAR decompilation.")
-#         return
-
-#     if args.decompiler == "cfr":
-#         cfr_path = os.path.join(args.download_path, args.cfr_jar)
-#         cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", "/tmp/", args.apk_file, "-o", self.output_path])
-#         cmd = Subprocess(['java', '-Xms512m', '-Xmx1024m', "-jar", cfr_path, 'org.benf.cfr.reader.Main', ext_path + '/' + jar_filename, '--outputdir', src_path, '--caseinsensitivefs', 'true', '--silent', 'true'])
-#     elif (decompiler == 'procyon'):
-#         subprocess.call(['java','-Xms512m', '-Xmx1024m', '-cp', lib_path, 'com.strobel.decompiler.DecompilerDriver', '-jar', ext_path + '/' + jar_filename, '--o', src_path], stdout=FNULL)
-#     inputs = ["killall -s SIGKILL frida-server frida-helper-32"]
-#     cmd = SubprocessShell(["adb", "shell"], inputs)
-#     if cmd.success:
-#         log.info("Killed frida-server on device.")
-
-
 if __name__ == '__main__':
     print(droidsf.utils.HEADER)
     args = droidsf.utils.get_args()
@@ -113,10 +97,15 @@ if __name__ == '__main__':
         sys.exit(1)
 
     droidsf.config.init(args)
+    apk = droidsf.apk.APK(args)
 
-    # DroidSF framework initialized
+    if not apk.process():
+        log.critical("Failed to process APK: %s", args.apk_file)
+        sys.exit(1)
 
-    droidstatx = DroidStatX(args)
+    # DroidSF framework initialized -------------------------------------------
+
+    droidstatx = DroidStatX(args, apk)
     app_package = droidstatx.apk.get_package()
     log.info("Analysed %s with DroidStatX.", app_package)
 
@@ -129,6 +118,10 @@ if __name__ == '__main__':
         device = frida.get_usb_device(timeout=5)
         log.info("Frida found USB device!")
         log.debug("Frida found applications: %s", device.enumerate_applications())
+
+        # TODO: Allow manual selection of device if multiple options are available
+        # TODO: Push APK to device using adb.
+
         pid = device.spawn([app_package])
         log.info("Frida spawned application: %s (PID: %s).", app_package, pid)
         session = device.attach(pid)

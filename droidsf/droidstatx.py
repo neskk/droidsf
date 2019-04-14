@@ -1,28 +1,20 @@
 # Original source code developed by @clviper
 # https://github.com/clviper/droidstatx
 
+import gzip
 import hashlib
 import logging
 import os
 import re
 import time
 import xml.etree.ElementTree as ET
-
-import droidsf.utils
-from .subprocess import Subprocess, SubprocessShell
-
-from androguard.core.analysis import analysis
-from androguard.core.bytecodes import apk, dvm
-from androguard.misc import AnalyzeAPK
-
-from droidsf.intent_filter import IntentFilter
-from droidsf.smali_checks import SmaliChecks
+from io import BytesIO
 
 from elftools.elf.elffile import ELFFile
-from io import BytesIO
-# from zipfile import ZipFile
-import gzip
-# import string
+
+import droidsf.utils
+from droidsf.intent_filter import IntentFilter
+from droidsf.smali_checks import SmaliChecks
 
 log = logging.getLogger(__name__)
 
@@ -105,23 +97,17 @@ class DroidStatX:
     baksmaliPaths = []
     smaliChecks = None
 
-    def __init__(self, args):
-        self.cwd = os.path.dirname(os.path.realpath(__file__))
-        self.sha256 = droidsf.utils.sha256_checksum(args.apk_file)
+    def __init__(self, args, apk):
+        self.args = args
+        self.apk = apk.apk  # androguard.core.bytecodes.apk
+        self.sha256 = apk.sha256
+        self.output_name = apk.output_name
+        self.output_path = apk.output_path
 
-        log.info("Parsing APK: %s", args.apk_file)
-        self.apk = apk.APK(args.apk_file)
-        self.output_name = (self.apk.get_package() + "_" +
-                            self.apk.get_androidversion_code())
-        self.output_path = os.path.join(args.output_path, self.output_name)
+        self.smaliChecks = SmaliChecks(self.args, apk)
+        self.performAnalysis()
 
-        log.info("Baksmaling DEX files")
-        if not self.baksmali(args):
-            log.error("Failed to perform static analysis.")
-            return
-
-        self.smaliChecks = SmaliChecks(args, self.output_name)
-
+    def performAnalysis(self):
         log.info("Analysing manifest.xml")
         self.manifest_xml = self.apk.get_android_manifest_axml().get_xml_obj()
         self.app_xml = self.manifest_xml.findall("application")[0]
@@ -136,11 +122,11 @@ class DroidStatX:
         log.info("Extracting Permissions")
         self.extractPermissions()
         log.info("Extracting Files")
-        self.extractFiles(args)
+        self.extractFiles()
 
-        self.export_analysis(args.output_path)
+        self.export_analysis()
 
-    def export_analysis(self, output_path):
+    def export_analysis(self):
         data = self.get_analysis()
         content = []
         for elem in sorted(data.items()):
@@ -150,7 +136,7 @@ class DroidStatX:
             content.append(elem[0] + ": " + str(elem[1]))
 
         filename = self.output_name + ".txt"
-        droidsf.utils.export_file(output_path, filename, content)
+        droidsf.utils.export_file(self.args.output_path, filename, content)
         log.info("Exported analysis to: %s", filename)
 
     # Return the Android Code Name for the particular Api Level.
@@ -438,11 +424,11 @@ class DroidStatX:
         return False
 
     # Create a list of files, organized in several types and while doing it, by the existence of certain files, determine if the app is a Cordova or Xamarin app.
-    def extractFiles(self, args):
+    def extractFiles(self):
         files = self.apk.get_files()
         try:
             for f in files:
-                if self.isInExclusions(f, args.file_exclusions):
+                if self.isInExclusions(f, self.args.file_exclusions):
                     continue
                 try:
                     f.encode("ascii")
@@ -478,27 +464,6 @@ class DroidStatX:
                     self.otherFiles.append(f)
         except UnicodeDecodeError as e:
             pass
-
-    # Run apktool on the package with the options
-    # d : Decompile
-    # -b : Don't write out debug info
-    # -f : Force rewrite
-    # -o : Output folder
-    def baksmali(self, args):
-        trail_file_path = os.path.join(self.output_path, ".droidsf")
-        if not args.force and os.path.isfile(trail_file_path):
-            log.debug("Skipped Baksmali, found previous output.")
-            return True
-
-        apktool_path = os.path.join(args.download_path, args.apktool_jar)
-        cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", "/tmp/", args.apk_file, "-o", self.output_path])
-
-        if not cmd.success:
-            return False
-
-        date = time.strftime("%Y%m%d_%H%M%S")
-        droidsf.utils.export_file(self.output_path, ".droidsf", date)
-        return True
 
     def unbundleXamarinDlls(self, lib_path):
         export_path = "xamarin_" + lib_path.split(os.sep)[1]

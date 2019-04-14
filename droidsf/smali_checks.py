@@ -40,12 +40,14 @@ class SmaliChecks:
     universalAccessFromFileURLEnabledWebviewsLocations = []
     customChecksLocations = {}
 
-    def __init__(self, args, apkName):
+    def __init__(self, args, apk):
+        self.args = args
+        self.apk = apk  # droidsf.apk.APK
+
         self.dir_exclusions = args.directory_exclusions
         self.file_exclusions = args.file_exclusions
-        self.apkPath = os.path.join(args.output_path, apkName)
-        for root, dirs, files in os.walk(self.apkPath, topdown=False):
-            self.smaliPaths = [os.path.join(root, d) for d in dirs if "smali" in d]
+
+        self.smaliPaths = apk.smali_paths
 
         if args.verbose:
             self.getMethod = droidsf.utils.timeit(self.getMethod)
@@ -613,7 +615,7 @@ class SmaliChecks:
         data = {}
         for attr in attrs:
             value = getattr(self, attr)
-            value = list(map(lambda x: os.path.relpath(x, self.apkPath), value))
+            value = list(map(lambda x: os.path.relpath(x, self.apk.output_path), value))
             data[attr] = value
 
         return data

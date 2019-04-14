@@ -95,12 +95,14 @@ python3 -m pex -v --disable-cache . -e enjarify.main -o bin/enjarify.pex --pytho
 ## Usage
 
 ```
-usage: script.py [-h] [-cf CONFIG] [-v] [--force] [--force-download] -a
-                 APK_FILE [--cache-path CACHE_PATH]
+usage: script.py [-h] [-cf CONFIG] [-v] -a APK_FILE [-d] [--force]
+                 [--force-download] [--cache-path CACHE_PATH]
                  [--download-path DOWNLOAD_PATH] [--log-path LOG_PATH]
                  [--output-path OUTPUT_PATH] [--arch {arm,arm64,x86,x86_64}]
-                 [--decompiler {cfr,procyon}] [--frida-version FRIDA_VERSION]
-                 [-s SCRIPT] [--file-exclusions FILE_EXCLUSIONS]
+                 [--dex-converter {enjarify,dex2jar}]
+                 [--java-decompiler {cfr,procyon}]
+                 [--frida-version FRIDA_VERSION] [-s SCRIPT]
+                 [--file-exclusions FILE_EXCLUSIONS]
                  [--directory-exclusions DIRECTORY_EXCLUSIONS]
                  [--custom-checks CUSTOM_CHECKS] [--java_home JAVA_HOME]
                  [--android_sdk ANDROID_SDK]
@@ -116,10 +118,11 @@ arguments:
   -cf CONFIG, --config CONFIG
                         Set configuration file.
   -v, --verbose         Run in the verbose mode.
-  --force               Overrides previously generated files.
-  --force-download      Overrides previously downloaded files.
   -a APK_FILE, --apk-file APK_FILE
                         Path to APK to analyse.
+  -d, --decompile       Decompile APK DEX into Java source code.
+  --force               Overrides previously generated files.
+  --force-download      Overrides previously downloaded files.
   --cache-path CACHE_PATH
                         Directory where temporary files are saved.
   --download-path DOWNLOAD_PATH
@@ -129,8 +132,10 @@ arguments:
                         Directory where generated files are saved.
   --arch {arm,arm64,x86,x86_64}
                         Android device architecture. Default: x86
-  --decompiler {cfr,procyon}
-                        DEX to JAR decompiler. Default: disabled
+  --dex-converter {enjarify,dex2jar}
+                        DEX to JAR converter. Default: enjarify
+  --java-decompiler {cfr,procyon}
+                        JAR to Java decompiler. Default: procyon
   --frida-version FRIDA_VERSION
                         Specify which frida version to use.Note: must match
                         python package version.

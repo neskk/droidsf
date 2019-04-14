@@ -76,15 +76,18 @@ def get_args():
     p.add_argument("-v", "--verbose",
                    help="Run in the verbose mode.",
                    action="store_true")
+    p.add_argument("-a", "--apk-file",
+                   required=True,
+                   help="Path to APK to analyse.")
+    p.add_argument("-d", "--decompile",
+                   help="Decompile APK DEX into Java source code.",
+                   action="store_true")
     p.add_argument("--force",
                    help="Overrides previously generated files.",
                    action="store_true")
     p.add_argument("--force-download",
                    help="Overrides previously downloaded files.",
                    action="store_true")
-    p.add_argument("-a", "--apk-file",
-                   required=True,
-                   help="Path to APK to analyse.")
     p.add_argument("--cache-path",
                    help="Directory where temporary files are saved.",
                    default="downloads/cache")
@@ -101,9 +104,13 @@ def get_args():
                    help="Android device architecture. Default: x86",
                    default="x86",
                    choices=("arm", "arm64", "x86", "x86_64"))
-    p.add_argument("--decompiler",
-                   help="DEX to JAR decompiler. Default: disabled",
-                   default=None,
+    p.add_argument("--dex-converter",
+                   help="DEX to JAR converter. Default: enjarify",
+                   default="enjarify",
+                   choices=("enjarify", "dex2jar"))
+    p.add_argument("--java-decompiler",
+                   help="JAR to Java decompiler. Default: procyon",
+                   default="procyon",
                    choices=("cfr", "procyon"))
     p.add_argument("--frida-version",
                    help=("Specify which frida version to use."
