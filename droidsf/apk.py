@@ -36,7 +36,10 @@ class APK(object):
             if not self.dex_convert():
                 return False
 
-            return self.jar_decompile()
+            if not self.jar_decompile():
+                return False
+
+        return True
 
     def baksmali(self):
         if not self.args.force and os.path.isdir(self.output_path):
@@ -50,7 +53,7 @@ class APK(object):
 
         log.info("Baksmaling DEX files")
         apktool_path = os.path.join(self.args.download_path, self.args.apktool_jar)
-        cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", "/tmp/", self.args.apk_file, "-o", self.output_path])
+        cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", self.args.cache_path, self.args.apk_file, "-o", self.output_path])
 
         if not cmd.success:
             log.error("Apktool failed to decompile APK: %s", self.apk_file)

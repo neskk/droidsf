@@ -84,15 +84,7 @@ Test it by typing: `Java.androidVersion` - it should output the Android OS versi
 py -3 -m pip install -r requirements.txt
 ```
 
-## Build Enjarify PEX
-
-pip3 install pex
-git clone git@github.com:neskk/enjarify.git
-cd enjarify
-
-python3 -m pex -v --disable-cache . -e enjarify.main -o bin/enjarify.pex --python=python3
-
-## Usage
+### Usage
 
 ```
 usage: script.py [-h] [-cf CONFIG] [-v] -a APK_FILE [-d] [--force]

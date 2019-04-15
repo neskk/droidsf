@@ -17,6 +17,7 @@ class NotFound(Exception):
 class SmaliChecks:
 
     smaliPaths = []
+    activityLocations = {}
     vulnerableTrustManagers = []
     vulnerableWebViewSSLErrorBypass = []
     vulnerableSetHostnameVerifiers = []
@@ -49,8 +50,8 @@ class SmaliChecks:
 
         self.smaliPaths = apk.smali_paths
 
-        if args.verbose:
-            self.getMethod = droidsf.utils.timeit(self.getMethod)
+        # if args.verbose:
+        #     self.getMethod = droidsf.utils.timeit(self.getMethod)
 
         log.info("Analysing smali paths: %s", self.smaliPaths)
         self.checkWebviewSSLErrorBypass()
@@ -101,35 +102,35 @@ class SmaliChecks:
         #     log.info("\n%s", "\n".join(res))
         return res
 
-    # https://www.tutorialspoint.com/sed/sed_pattern_range.htm
-    @droidsf.utils.timeit
-    def getMethodCompleteInstructions(self, methodRegEx, filePath):
-        command = ["sed", "-n", methodRegEx, filePath]
-        # log.info(" ".join(command))
-        sed = Popen(command, stdout=PIPE, universal_newlines=True)
-        out = sed.communicate()[0]
-        methodContent = out.strip().split('\n')
-        methodContent = [l.strip() for l in methodContent if l.strip()]
+    # # https://www.tutorialspoint.com/sed/sed_pattern_range.htm
+    # @droidsf.utils.timeit
+    # def getMethodCompleteInstructions(self, methodRegEx, filePath):
+    #     command = ["sed", "-n", methodRegEx, filePath]
+    #     # log.info(" ".join(command))
+    #     sed = Popen(command, stdout=PIPE, universal_newlines=True)
+    #     out = sed.communicate()[0]
+    #     methodContent = out.strip().split('\n')
+    #     methodContent = [l.strip() for l in methodContent if l.strip()]
 
-        # if not methodContent:
-        #     log.info("sed search %s empty on %s", methodRegEx, filePath)
-        # else:
-        #     log.debug("sed search %s on %s matched %d lines. ", methodRegEx, filePath, len(methodContent))
-        # if len(methodContent) < 10:
-        #     log.info("\n%s", "\n".join(methodContent))
-        return methodContent
+    #     # if not methodContent:
+    #     #     log.info("sed search %s empty on %s", methodRegEx, filePath)
+    #     # else:
+    #     #     log.debug("sed search %s on %s matched %d lines. ", methodRegEx, filePath, len(methodContent))
+    #     # if len(methodContent) < 10:
+    #     #     log.info("\n%s", "\n".join(methodContent))
+    #     return methodContent
 
-    def getMethodInstructions(self, methodRegEx, filePath):
-        command = ["sed", "-n", methodRegEx, filePath]
-        log.info(" ".join(command))
-        sed = Popen(command, stdout=PIPE, universal_newlines=True)
-        methodContent = sed.communicate()[0]
-        try:
-            match = re.search(r"\.locals \d{1,}([\S\s]*?)\.end method", methodContent)
-            instructions = str(match.group(1)).strip().replace('    ', '').split('\n')
-            return instructions
-        except:
-            return ""
+    # def getMethodInstructions(self, methodRegEx, filePath):
+    #     command = ["sed", "-n", methodRegEx, filePath]
+    #     log.info(" ".join(command))
+    #     sed = Popen(command, stdout=PIPE, universal_newlines=True)
+    #     methodContent = sed.communicate()[0]
+    #     try:
+    #         match = re.search(r"\.locals \d{1,}([\S\s]*?)\.end method", methodContent)
+    #         instructions = str(match.group(1)).strip().replace('    ', '').split('\n')
+    #         return instructions
+    #     except:
+    #         return ""
 
     # XXX: working
     def isMethodEmpty(self, instructions):
@@ -142,22 +143,15 @@ class SmaliChecks:
                 else:
                     return False
 
-    # XXX: Unused
-    def hasOperationProceed(self, instructions):
-        for i in range(len(instructions) - 1, 0, -1):
-            if 'Landroid/webkit/SslErrorHandler;->proceed()V' in instructions[i]:
-                return True
-
-        return False
-
     # XXX: working
-    def doesMethodReturnNull(self, instructions):
-        for i in range(len(instructions) - 1, 0, -1):
-            if instructions[i] == "return-object v0":
-                if i - 1 >= 0 and instructions[i - 1] == "const/4 v0, 0x0":
+    # Check if method returns null value.
+    def doesMethodReturnNull(self, method, instruction=""):
+        for i in range(len(method) - 1, 0, -1):
+            if method[i] == "return-object v0":
+                if i - 1 >= 0 and method[i - 1] == "const/4 v0, 0x0":
                     return True
-                elif i - 1 >= 0 and instructions[i - 1] == "new-array v0, v0, [Ljava/security/cert/X509Certificate;":
-                    if i - 2 >= 0 and instructions[i - 2] == "const/4 v0, 0x0":
+                elif i - 1 >= 0 and method[i - 1] == instruction:
+                    if i - 2 >= 0 and method[i - 2] == "const/4 v0, 0x0":
                         return True
                     else:
                         return False
@@ -168,12 +162,12 @@ class SmaliChecks:
         return False
 
     # XXX: working
-    def doesMethodReturnTrue(self, instructions):
-        maxLen = len(instructions) - 1
+    # Check if method returns true
+    def doesMethodReturnTrue(self, method):
+        maxLen = len(method) - 1
         for i in range(maxLen, 0, -1):
-            if instructions[i] == "return v0":
-                if i - 1 >= 0 and instructions[i - 1] == "const/4 v0, 0x1":
-                    log.warning("returns true")
+            if method[i] == "return v0":
+                if i - 1 >= 0 and method[i - 1] == "const/4 v0, 0x1":
                     return True
                 else:
                     return False
@@ -181,119 +175,142 @@ class SmaliChecks:
                 continue
         return False
 
-    # Returns the register that has the target value assigned
     # XXX: Working
-    def searchRegisterByAssignedValue(self, method, value):
-        register = ""
+    # Find the register that has the target value assigned
+    def findRegisterByAssignedValue(self, method, value):
         for instruction in method:
             if "const/" in instruction and value in instruction:
                 registerEnd = instruction.find(",")
                 registerBegin = instruction.find(" ", 0, registerEnd) + 1
-                register = instruction[registerBegin:registerEnd]
-                break
-        return register
+                register = instruction[registerBegin:registerEnd].strip()
+                return register
 
-    # Returns the assigned value to the targer register.
-    # XXX: unused
-    def getAssignedValueByRegister(self, instructions, register):
-        register = ""
-        for instruction in instructions:
+        return None
+
+    # XXX: Working
+    # XXX: Checked with com.htbridge.pivaa
+    # Find value assigned to register going backwards on method instructions, starting in index
+    def findRegisterAssignedValueFromIndexBackwards(self, method, register, index):
+        for pointer in range(index, 0, -1):
+            instruction = method[pointer]
+            if register not in instruction:
+                continue
+            if "const" in instruction or "sget-object" in instruction:
+                valueBegin = instruction.find(",")
+                value = instruction[valueBegin + 2:]
+                return value
+
+        return None
+
+    # XXX: Working
+    # Find registers passed to function in instruction
+    def findRegistersPassedToFunction(self, instruction):
+        registers = []
+        match = re.search(r"{(.*)}", instruction)
+        if match:
+            registers = match.group(1).strip().replace(' ', '')
+
+            if "range" in instruction:
+                registers = registers.split("..")
+            else:
+                registers = registers.split(",")
+        else:
+            match = re.findall(r"\D\d", instruction)
+            registers = [m.group(0) for m in match]
+
+        return registers
+
+    # XXX: Working
+    # Search method instructions for pattern and return its index
+    def findInstructionIndex(self, method, pattern):
+        indexList = []
+        regex = re.compile(pattern)
+        for index, instruction in enumerate(method):
+            if re.search(regex, instruction):
+                indexList.append(index)
+
+        return indexList
+
+    # XXX: Unused
+    # Returns the assigned value to the target register
+    def getAssignedValueByRegister(self, method, register):
+        for instruction in method:
             if "const/" in instruction and register in instruction:
                 registerEnd = instruction.find(",")
                 registerBegin = instruction.find(" ", 0, registerEnd) + 1
-                register = instruction[registerBegin:registerEnd]
-                break
-        log.warning("Found: %s", register)
-        return register
+                return instruction[registerBegin:registerEnd]
 
-    # XXX: called externally
-    def doesActivityExtendsPreferenceActivity(self, activity):
-        activity = activity.replace(".", "/")
-        grep = Grep("\.class public([a-zA-Z\s]*)L" + activity + ";", self.dir_exclusions, self.file_exclusions)
-        res = grep.check_directories(self.smaliPaths)
-        for file_path in res:
-            log.warning("Activity code on: %s", file_path)
-            grep = Grep("\.super Landroid\/preference\/PreferenceActivity;", self.dir_exclusions, self.file_exclusions)
-            x = grep.check_file(file_path)
-            log.warning("Extends: %s", x)
-            return x
+        return None
 
-    # XXX: called externally
+    # XXX: Unused
+    def hasOperationProceed(self, instructions):
+        for i in range(len(instructions) - 1, 0, -1):
+            if 'Landroid/webkit/SslErrorHandler;->proceed()V' in instructions[i]:
+                return True
+
+        return False
+
+    # XXX: Testing (called externally - 2nd)
     def doesPreferenceActivityHasValidFragmentCheck(self, activity):
-        activity = activity.replace(".", "/")
-        grep = Grep("\.class public([a-zA-Z\s]*)L" + activity + ";", self.dir_exclusions, self.file_exclusions)
+        if activity.startswith("."):
+            activityName = self.apk.apk.get_package() + activity
+        else:
+            activityName = activity
 
-        res = grep.check_directories(self.smaliPaths)
-        log.warning("TEST")
+        activityName = activityName.replace(".", "/")
+
+        # Check if activity location was previously found
+        if activity in self.activityLocations:
+            res = [self.activityLocations[activity]]
+        else:
+            grep = Grep("\.class public([a-zA-Z\s]*)L" + activity + ";", self.dir_exclusions, self.file_exclusions)
+            res = grep.check_directories(self.smaliPaths)
+
+        if not res:
+            log.warning("Could not find file for activity: %s", activity)
+
         for file_path in res:
+            self.activityLocations[activity] = file_path
+
             grep = Grep("\.super Landroid\/preference\/PreferenceActivity;", self.dir_exclusions, self.file_exclusions)
             if grep.check_file(file_path):
                 log.warning("PreferenceActivity on: %s", file_path)
-                isValidFragmentFunction = self.getMethodCompleteInstructions('/.method protected isValidFragment(Ljava\/lang\/String;)Z/,/^.end method/p', file_path)
-                isValidFragmentFunction = self.getMethod(r"\.method protected isValidFragment\(Ljava\/lang\/String;\)Z", r"\.end method", file_path)
+                method = self.getMethod(r"\.method protected isValidFragment\(Ljava\/lang\/String;\)Z", r"\.end method", file_path)
 
-                log.warning("Found isValidFragment(): %s", isValidFragmentFunction)
-                if isValidFragmentFunction:
+                log.warning("isValidFragment() method: %s", "\n".join(method))
+                if method:
                     return True
                 else:
                     return False
 
-    # XXX: working (called externally)
-    # https://developer.android.com/reference/android/view/WindowManager.LayoutParams.html#FLAG_SECURE    
+    # XXX: Testing (called externally - 1st)
+    # https://developer.android.com/reference/android/view/WindowManager.LayoutParams.html#FLAG_SECURE
     # https://stackoverflow.com/questions/32440679/flag-secure-not-working-on-dialogfragment-with-style-as-dialogfragment-style-no/37491066#37491066
     def doesActivityHasFlagSecure(self, activity):
-        activity = activity.replace(".", "/")
-        end = activity.rfind('/') + 1
+        if activity.startswith("."):
+            activityName = self.apk.apk.get_package() + activity
+        else:
+            activityName = activity
 
-        for smaliPath in self.smaliPaths:
-            activityPath = os.path.join(smaliPath, activity[:end])
+        activityName = activityName.replace(".", "/")
 
-            grep = Grep("\.class public([a-zA-Z\s]*)L" + activity + ";", self.dir_exclusions, self.file_exclusions)
-            res = grep.check_directory(activityPath)
+        grep = Grep("\.class public([a-zA-Z\s]*)L" + activityName + ";", self.dir_exclusions, self.file_exclusions)
+        res = grep.check_directories(self.smaliPaths)
 
-            for file_path in res:
-                methodInstructions = self.getMethodCompleteInstructions('/.method \([a-zA-Z]* \)onCreate(Landroid\/os\/Bundle;)V/,/^.end method/p', file_path)
-                method = self.getMethod(r"\.method ([a-zA-Z]*) onCreate\(Landroid\/os\/Bundle;\)V", r"\.end method", file_path)
-                register = self.searchRegisterByAssignedValue(method, "0x2000")
-                if register.strip() == "":
-                    return False
-                else:
-                    # ex: invoke-virtual {p1, v0, v0}, Landroid/view/Window;->setFlags(II)V
-                    grep = Grep("invoke-virtual(.*)" + register + "(.*)Landroid\/view\/Window;->setFlags\(II\)V", self.dir_exclusions, self.file_exclusions)
-                    x = grep.check_file(file_path)
-                    return x
+        if not res:
+            log.warning("Could not find file for activity: %s", activity)
 
-    # XXX: Checked with com.htbridge.pivaa
-    def findRegisterAssignedValueFromIndexBackwards(self, instructionsList, register, index):
-        for pointer in range(index, 0, -1):
-            if register in instructionsList[pointer] and ("const" in instructionsList[pointer] or "sget-object" in instructionsList[pointer]):
-                valueBegin = instructionsList[pointer].find(",")
-                value = instructionsList[pointer][valueBegin + 2:]
-                return value
+        for file_path in res:
+            self.activityLocations[activity] = file_path
 
-    def findRegistersPassedToFunction(self, functionInstruction):
-        match = re.search(r"{(.*)}", functionInstruction)
-        try:
-            if "range" in functionInstruction:
-                registers = str(match.group(1)).strip().replace(' ', '').split("..")
-            else:
-                registers = str(match.group(1)).strip().replace(' ', '').split(",")
-        except:
-            match = re.search(r"\D\d", functionInstruction)
-            try:
-                registers = str(match.group(0))
-            except:
-                return ""
-        return registers
+            method = self.getMethod(r"\.method ([a-zA-Z]*) onCreate\(Landroid\/os\/Bundle;\)V", r"\.end method", file_path)
+            register = self.findRegisterByAssignedValue(method, "0x2000")
+            if not register:
+                return False
 
-    # XXX: Working
-    def findInstructionIndex(self, instructionsList, instructionToSearch):
-        indexList = []
-        regex = re.compile(instructionToSearch)
-        for index, instruction in enumerate(instructionsList):
-            if re.search(regex, instruction):
-                indexList.append(index)
-        return indexList
+            # invoke-virtual {p1, v0, v0}, Landroid/view/Window;->setFlags(II)V
+            grep = Grep("invoke-virtual(.*)" + register + "(.*)Landroid\/view\/Window;->setFlags\(II\)V", self.dir_exclusions, self.file_exclusions)
+            return grep.check_file(file_path)
 
     # XXX: Checked with ca.mobile.explorer
     def findDynamicRegisteredBroadcastReceivers(self):
@@ -314,16 +331,14 @@ class SmaliChecks:
                 continue
             instructions = self.getFileContent(location)
             indexList = self.findInstructionIndex(instructions, "Ljavax/crypto/Cipher;->init\(ILjava/security/Key")
-            if len(indexList) != 0:
-                for index in indexList:
-                    registers = self.findRegistersPassedToFunction(instructions[index])
-                    if self.findRegisterAssignedValueFromIndexBackwards(instructions, registers[1], index) == "0x1":
-                        self.encryptionFunctionsLocation.append(location)
-                    elif self.findRegisterAssignedValueFromIndexBackwards(instructions, registers[1], index) == "0x2":
-                        self.decryptionFunctionsLocation.append(location)
-                    else:
-                        if location not in self.undeterminedCryptographicFunctionsLocation:
-                            self.undeterminedCryptographicFunctionsLocation.append(location)
+            for index in indexList:
+                registers = self.findRegistersPassedToFunction(instructions[index])
+                if self.findRegisterAssignedValueFromIndexBackwards(instructions, registers[1], index) == "0x1":
+                    self.encryptionFunctionsLocation.append(location)
+                elif self.findRegisterAssignedValueFromIndexBackwards(instructions, registers[1], index) == "0x2":
+                    self.decryptionFunctionsLocation.append(location)
+                else:
+                    self.undeterminedCryptographicFunctionsLocation.append(location)
 
     # XXX: Checked with ca.mobile.explorer
     def findKeystoreUsage(self):
@@ -364,14 +379,13 @@ class SmaliChecks:
         res = grep.check_directories(self.smaliPaths)
 
         for location in res:
-            instructions = self.getMethodCompleteInstructions('/.method public openFile(Landroid\/net\/Uri;Ljava\/lang\/String;)Landroid\/os\/ParcelFileDescriptor;/,/^.end method/p', location)
             method = self.getMethod(r"\.method public openFile\(Landroid\/net\/Uri;Ljava\/lang\/String;\)Landroid\/os\/ParcelFileDescriptor;", r"\.end method", location)
             if not method:
                 continue
 
             indexList = self.findInstructionIndex(method, "Ljava\/io\/File;->getCanonicalPath\(\)")
-            # If a file is being loaded with getCanonicalPath(), then it is probably safe
             if not indexList:
+                # If file is being loaded with getCanonicalPath(), then it is probably safe
                 self.vulnerableContentProvidersPathTraversalLocations.append(location)
 
     # XXX: Checked with com.android.insecurebank
@@ -382,15 +396,15 @@ class SmaliChecks:
         res = grep.check_directories(self.smaliPaths)
 
         for location in res:
-            instructions = self.getMethodCompleteInstructions('/.method public query(Landroid\/net\/Uri;\[Ljava\/lang\/String;Ljava\/lang\/String;\[Ljava\/lang\/String;Ljava\/lang\/String;)Landroid\/database\/Cursor;/,/^.end method/p', location)
             method = self.getMethod(r"\.method public query\(Landroid\/net\/Uri;\[Ljava\/lang\/String;Ljava\/lang\/String;\[Ljava\/lang\/String;Ljava\/lang\/String;\)Landroid\/database\/Cursor;", r"\.end method", location)
+            if not method:
+                continue
 
             indexList = self.findInstructionIndex(method, "invoke-virtual(.*) {(.*)}, Landroid\/database\/sqlite\/SQLiteDatabase;->query")
-            indexList.extend(self.findInstructionIndex(instructions, "invoke-virtual(.*) {(.*)}, Landroid\/database\/sqlite\/SQLiteQueryBuilder;->query\(Landroid/database/sqlite/SQLiteDatabase;"))
-            if len(indexList) > 0:
-                indexList = self.findInstructionIndex(method, "\?")
-                if len(indexList) == 0:
-                    self.vulnerableContentProvidersSQLiLocations.append(location)
+            indexList.extend(self.findInstructionIndex(method, "invoke-virtual(.*) {(.*)}, Landroid\/database\/sqlite\/SQLiteQueryBuilder;->query\(Landroid/database/sqlite/SQLiteDatabase;"))
+
+            if indexList and not self.findInstructionIndex(method, "\?"):
+                self.vulnerableContentProvidersSQLiLocations.append(location)
 
     # XXX: Checked with sweatcoin / snapchat_9.11
     def findWeakCryptographicUsage(self):
@@ -467,7 +481,6 @@ class SmaliChecks:
         res = grep.check_directories(self.smaliPaths)
 
         for location in res:
-            methodInstructions = self.getMethodCompleteInstructions('/.method .* verify(Ljava\/lang\/String;Ljavax\/net\/ssl\/SSLSession;)Z/,/^.end method/p', location)
             method = self.getMethod(r"\.method .* verify\(Ljava\/lang\/String;Ljavax\/net\/ssl\/SSLSession;\)Z", r"\.end method", location)
             if not method:
                 continue
@@ -492,31 +505,29 @@ class SmaliChecks:
         res = grep.check_directories(self.smaliPaths)
 
         for location in res:
-            methodInstructions = self.getMethodCompleteInstructions('/.method public checkClientTrusted\(\)/,/^.end method/p', location)
             method = self.getMethod(r"\.method public checkClientTrusted\(", r"\.end method", location)
-            if methodInstructions == "":
+            if not method:
                 continue
 
-            if not self.isMethodEmpty(methodInstructions):
+            if not self.isMethodEmpty(method):
                 continue
 
             grep = Grep("\.method public getAcceptedIssuers\(\)\[Ljava\/security\/cert\/X509Certificate;", self.dir_exclusions, self.file_exclusions)
 
             if grep.check_file(location):
-                methodInstructions = self.getMethodCompleteInstructions('/.method public getAcceptedIssuers()\[Ljava\/security\/cert\/X509Certificate;/,/^.end method/p', location)
-                method = self.getMethod(r"\.method public getAcceptedIssuers\(\)\[Ljava\/security\/cert\/X509Certificate;", r"\.end method", location)
-                if methodInstructions == "":
-                    continue
 
-                if not self.doesMethodReturnNull(methodInstructions):
+                method = self.getMethod(r"\.method public getAcceptedIssuers\(\)\[Ljava\/security\/cert\/X509Certificate;", r"\.end method", location)
+                if not method:
+                    continue
+                # new-array v0, v0, [Ljava/security/cert/X509Certificate;
+                if not self.doesMethodReturnNull(method, "new-array v0, v0, [Ljava/security/cert/X509Certificate;"):
                     continue
 
                 grep = Grep("\.method public checkServerTrusted\(\[Ljava\/security\/cert\/X509Certificate;Ljava\/lang\/String;\)V", self.dir_exclusions, self.file_exclusions)
 
                 if grep.check_file(location):
-                    methodInstructions = self.getMethodCompleteInstructions('/method public checkServerTrusted\(\)/,/^.end method/p', location)
                     method = self.getMethod(r"\.method public checkServerTrusted\(", r"\.end method", location)
-                    if self.isMethodEmpty(methodInstructions):
+                    if self.isMethodEmpty(method):
                         self.vulnerableTrustManagers.append(location)
 
     # Check for the presence of setHostnameVerifier with ALLOW_ALL_HOSTNAME_VERIFIER
@@ -529,11 +540,10 @@ class SmaliChecks:
         for location in res:
             instructions = self.getFileContent(location)
             indexList = self.findInstructionIndex(instructions, "Lorg/apache/http/conn/ssl/SSLSocketFactory;->setHostnameVerifier")
-            if len(indexList) != 0:
-                for index in indexList:
-                    registers = self.findRegistersPassedToFunction(instructions[index])
-                    if self.findRegisterAssignedValueFromIndexBackwards(instructions, registers[1], index) == "Lorg/apache/http/conn/ssl/SSLSocketFactory;->ALLOW_ALL_HOSTNAME_VERIFIER:Lorg/apache/http/conn/ssl/X509HostnameVerifier;":
-                        self.vulnerableSetHostnameVerifiers.append(location)
+            for index in indexList:
+                registers = self.findRegistersPassedToFunction(instructions[index])
+                if self.findRegisterAssignedValueFromIndexBackwards(instructions, registers[1], index) == "Lorg/apache/http/conn/ssl/SSLSocketFactory;->ALLOW_ALL_HOSTNAME_VERIFIER:Lorg/apache/http/conn/ssl/X509HostnameVerifier;":
+                    self.vulnerableSetHostnameVerifiers.append(location)
 
     # Check for SocketFactory without Hostname Verify
     # https://op-co.de/blog/posts/java_sslsocket_mitm/
@@ -545,7 +555,7 @@ class SmaliChecks:
         for location in res:
             instructions = self.getFileContent(location)
             indexList = self.findInstructionIndex(instructions, "Ljavax/net/ssl/HostnameVerifier;->verify\(Ljava/lang/String;Ljavax/net/ssl/SSLSession;\)Z")
-            if len(indexList) == 0:
+            if indexList:
                 self.vulnerableSocketsLocations.append(location)
 
     # Check for the implementation of OKHttp Certificate Pinning
@@ -558,9 +568,10 @@ class SmaliChecks:
             # Bypass library files
             if "/okhttp" in location:
                 continue
+
             instructions = self.getFileContent(location)
             indexList = self.findInstructionIndex(instructions, "certificatePinner\(Lokhttp3/CertificatePinner;\)Lokhttp3/OkHttpClient$Builder;")
-            if len(indexList) == 0:
+            if indexList:
                 self.okHttpCertificatePinningLocation.append(location)
 
     # Check for custom Certificate Pinning Implementation
@@ -573,6 +584,7 @@ class SmaliChecks:
         for location in res:
             if "/okhttp" in location or "io/fabric" in location:
                 continue
+
             self.customCertifificatePinningLocation.append(location)
 
     # *** CUSTOM CHECKS ***
@@ -615,7 +627,7 @@ class SmaliChecks:
         data = {}
         for attr in attrs:
             value = getattr(self, attr)
-            value = list(map(lambda x: os.path.relpath(x, self.apk.output_path), value))
+            value = list(map(lambda x: os.path.relpath(x, self.apk.output_path).replace("\\", "/"), value))
             data[attr] = value
 
         return data
