@@ -18,6 +18,7 @@ class SmaliChecks:
 
     smaliPaths = []
     activityLocations = {}
+    providerLocations = {}
     vulnerableTrustManagers = []
     vulnerableWebViewSSLErrorBypass = []
     vulnerableSetHostnameVerifiers = []
@@ -251,13 +252,14 @@ class SmaliChecks:
         return False
 
     # XXX: Testing (called externally - 2nd)
+    # Note: can return: True, False or None
     def doesPreferenceActivityHasValidFragmentCheck(self, activity):
         if activity.startswith("."):
             activityName = self.apk.apk.get_package() + activity
         else:
             activityName = activity
 
-        activityName = activityName.replace(".", "/")
+        activityName = activityName.replace("$", "\$").replace(".", "/")
 
         # Check if activity location was previously found
         if activity in self.activityLocations:
@@ -274,7 +276,7 @@ class SmaliChecks:
 
             grep = Grep("\.super Landroid\/preference\/PreferenceActivity;", self.dir_exclusions, self.file_exclusions)
             if grep.check_file(file_path):
-                log.warning("PreferenceActivity on: %s", file_path)
+                log.warning("Activity extends PreferenceActivity: %s", file_path)
                 method = self.getMethod(r"\.method protected isValidFragment\(Ljava\/lang\/String;\)Z", r"\.end method", file_path)
 
                 log.warning("isValidFragment() method: %s", "\n".join(method))
@@ -283,7 +285,10 @@ class SmaliChecks:
                 else:
                     return False
 
-    # XXX: Testing (called externally - 1st)
+        return None
+
+    # XXX: Working (called externally - 1st)
+    # XXX: Checked with pt.santandertotta.mobileparticulares
     # https://developer.android.com/reference/android/view/WindowManager.LayoutParams.html#FLAG_SECURE
     # https://stackoverflow.com/questions/32440679/flag-secure-not-working-on-dialogfragment-with-style-as-dialogfragment-style-no/37491066#37491066
     def doesActivityHasFlagSecure(self, activity):
@@ -292,7 +297,7 @@ class SmaliChecks:
         else:
             activityName = activity
 
-        activityName = activityName.replace(".", "/")
+        activityName = activityName.replace("$", "\$").replace(".", "/")
 
         grep = Grep("\.class public([a-zA-Z\s]*)L" + activityName + ";", self.dir_exclusions, self.file_exclusions)
         res = grep.check_directories(self.smaliPaths)
@@ -371,14 +376,25 @@ class SmaliChecks:
                 indexList = self.findInstructionIndex(instructions, "")
 
     # https://support.google.com/faqs/answer/7496913?hl=en
-    # XXX: Checked with com.mwr.example.sieve
+    # XXX: Testing (called externally - 2nd)
+    # Checked with com.mwr.example.sieve
     def determineContentProviderPathTraversal(self, provider):
-        provider = provider.replace("$", "\$").replace(".", "\/")
-        grep = Grep("\.class .* L" + provider, self.dir_exclusions, self.file_exclusions)
+        if provider.startswith("."):
+            providerName = self.apk.apk.get_package() + provider
+        else:
+            providerName = provider
 
-        res = grep.check_directories(self.smaliPaths)
+        providerName = providerName.replace("$", "\$").replace(".", "/")
+
+        # Check if provider location was previously found
+        if provider in self.providerLocations:
+            res = [self.providerLocations[provider]]
+        else:
+            grep = Grep("\.class .* L" + providerName, self.dir_exclusions, self.file_exclusions)
+            res = grep.check_directories(self.smaliPaths)
 
         for location in res:
+            self.providerLocations[provider] = location
             method = self.getMethod(r"\.method public openFile\(Landroid\/net\/Uri;Ljava\/lang\/String;\)Landroid\/os\/ParcelFileDescriptor;", r"\.end method", location)
             if not method:
                 continue
@@ -388,14 +404,22 @@ class SmaliChecks:
                 # If file is being loaded with getCanonicalPath(), then it is probably safe
                 self.vulnerableContentProvidersPathTraversalLocations.append(location)
 
-    # XXX: Checked with com.android.insecurebank
+    # XXX: Testing (called externally - 1st)
+    # Checked with com.mwr.example.sieve / com.android.insecurebank
     def determineContentProviderSQLi(self, provider):
-        provider = provider.replace("$", "\$").replace(".", "\/")
-        grep = Grep("\.class .* L" + provider, self.dir_exclusions, self.file_exclusions)
+        if provider.startswith("."):
+            providerName = self.apk.apk.get_package() + provider
+        else:
+            providerName = provider
+
+        providerName = providerName.replace("$", "\$").replace(".", "/")
+
+        grep = Grep("\.class .* L" + providerName, self.dir_exclusions, self.file_exclusions)
 
         res = grep.check_directories(self.smaliPaths)
 
         for location in res:
+            self.providerLocations[provider] = location
             method = self.getMethod(r"\.method public query\(Landroid\/net\/Uri;\[Ljava\/lang\/String;Ljava\/lang\/String;\[Ljava\/lang\/String;Ljava\/lang\/String;\)Landroid\/database\/Cursor;", r"\.end method", location)
             if not method:
                 continue

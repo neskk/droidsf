@@ -76,6 +76,7 @@ class DroidStatX:
     exportedProviders = []
     exportedServices = []
     permissions = []
+    permissionProtectionLevels = {}
     secretCodes = []
     libs = []
     assemblies = []
@@ -227,7 +228,7 @@ class DroidStatX:
     # Create the list of permissions used by the package
     def extractPermissions(self):
         for permission in self.apk.get_permissions():
-            log.warning("Application requires permission: %s", permission)
+            # log.debug("Application requires permission: %s", permission)
             self.permissions.append(permission)
 
     def extractPermissionProtectionLevels(self):
@@ -237,7 +238,7 @@ class DroidStatX:
             level = int(permission.get(NS_ANDROID + "protectionLevel"), 16)
             level_name = ANDROID_PERMISSION_PROTECTION_LEVELS[level]
 
-            log.debug("Found Permission: %s - %s", name, level_name)
+            # log.debug("Found Protection Level for Permission : %s - %s", name, level_name)
             self.permissionProtectionLevels[name] = level_name
 
     def extractCertificate(self):
@@ -251,26 +252,19 @@ class DroidStatX:
                 self.activitiesWithExcludeFromRecents.append(activity.get(NS_ANDROID + "name"))
 
     # Create a global list of activities that do not have the FLAG_SECURE or the excludeFromRecents attribute set.
-    # XXX: Checked with sweatcoin / de.zertapps.dvhma.featherweight
+    # XXX: Checked with pt.santandertotta.mobileparticulares
     def extractActivitiesWithoutSecureFlag(self):
         activitiesWithoutSecureFlag = []
-        # for activity in self.apk.get_activities():
+
         for activity in self.app_xml.findall("activity"):
             activityName = activity.get(NS_ANDROID + "name")
 
-            # if activityName.startswith("."):
-            #     activityName = self.apk.get_package() + activityName
-
             if self.smaliChecks.doesActivityHasFlagSecure(activityName):
-                log.warning("Activity %s sets FLAG_SECURE.", activityName)
+                log.debug("Activity %s sets FLAG_SECURE.", activityName)
             elif activityName not in self.activitiesWithExcludeFromRecents:
-                # try:
-                #     activity.encode("ascii")
-                # except UnicodeEncodeError as e:
-                #     activity = activity.encode('ascii', 'xmlcharrefreplace')
                 self.activitiesWithoutFlagSecure.append(activityName)
             else:
-                log.warning("Activity %s is on ExcludeFromRecents", activityName)
+                log.debug("Activity %s is on ExcludeFromRecents.", activityName)
 
     # Add the extracted permission of a particular component to a global list indexed by the component name.
     def extractComponentPermission(self, component):
@@ -347,18 +341,21 @@ class DroidStatX:
             if "com.outsystems.android" in activityName:
                     self.isAppOutsystems = True
 
-            if self.smaliChecks.doesPreferenceActivityHasValidFragmentCheck(activityName):
-                self.activitiesExtendPreferencesWithValidate.append(activityName)
-            else:
-                self.activitiesExtendPreferencesWithoutValidate.append(activityName)
-
             exported = activity.get(NS_ANDROID + "exported")  # 'true' / 'false' / None
             if exported == "true":
-                log.debug("Exported activity %s: found 'exported' attribute.", activityName)
+                # log.debug("Exported activity %s: found 'exported' attribute.", activityName)
                 self.exportedActivities.append(activityName)
             elif exported != "false" and activityName in self.intentFilterList:
-                log.debug("Exported activity %s: found Intent Filters.", activityName)
+                # log.debug("Exported activity %s: found Intent Filters.", activityName)
                 self.exportedActivities.append(activityName)
+
+    def analyseExportedActivities(self):
+        for activity in self.exportedActivities:
+            res = self.smaliChecks.doesPreferenceActivityHasValidFragmentCheck(activity)
+            if res is True:
+                self.activitiesExtendPreferencesWithValidate.append(activity)
+            elif res is False:
+                self.activitiesExtendPreferencesWithoutValidate.append(activity)
 
     # Determine exported Broadcast Receivers taking into account the existence of exported attribute or the presence of intent-filters
     def extractExportedReceivers(self):
@@ -373,10 +370,10 @@ class DroidStatX:
 
             exported = receiver.get(NS_ANDROID + "exported")  # 'true' / 'false' / None
             if exported == "true":
-                log.debug("Exported receiver %s: found 'exported' attribute.", receiverName)
+                # log.debug("Exported receiver %s: found 'exported' attribute.", receiverName)
                 self.exportedReceivers.append(receiverName)
             elif exported != "false" and receiverName in self.intentFilterList:
-                log.debug("Exported activity %s: found Intent Filters.", receiverName)
+                # log.debug("Exported activity %s: found Intent Filters.", receiverName)
                 self.exportedReceivers.append(receiverName)
 
     # Determine exported Content Providers taking into account the existence of exported attribute or without the attributes, under API 16 they are exported by default
@@ -387,20 +384,18 @@ class DroidStatX:
             # Extract Permission
             self.extractComponentPermission(provider)
 
-            # # Hack: some APKs have their manifest with relative provider names
-            # if providerName.startswith("."):
-            #     providerName = provider.get(NS_ANDROID + "authorities")
-
-            self.smaliChecks.determineContentProviderSQLi(providerName)
-            self.smaliChecks.determineContentProviderPathTraversal(providerName)
-
             exported = provider.get(NS_ANDROID + "exported")  # 'true' / 'false' / None
             if exported == "true":
-                log.debug("Exported provider %s: found 'exported' attribute.", providerName)
+                # log.debug("Exported provider %s: found 'exported' attribute.", providerName)
                 self.exportedProviders.append(providerName)
             elif exported != "false" and self.minSDKVersion <= 16:
-                log.debug("Exported provider %s: minSDK version <= 16.", providerName)
+                # log.debug("Exported provider %s: minSDK version <= 16.", providerName)
                 self.exportedProviders.append(providerName + " * In devices <= API 16 (Jelly Bean 4.1.x)")
+
+    def analyseExportedProviders(self):
+        for provider in self.exportedProviders:
+            self.smaliChecks.determineContentProviderSQLi(provider)
+            self.smaliChecks.determineContentProviderPathTraversal(provider)
 
     # Determine exported Services taking into account the existence of exported attribute or the presence of intent-filters
     def extractExportedServices(self):
@@ -415,17 +410,19 @@ class DroidStatX:
 
             exported = service.get(NS_ANDROID + "exported")  # 'true' / 'false' / None
             if exported == "true":
-                log.debug("Exported service %s: found 'exported' attribute.", serviceName)
+                # log.debug("Exported service %s: found 'exported' attribute.", serviceName)
                 self.exportedServices.append(serviceName)
             elif exported != "false" and serviceName in self.intentFilterList:
-                log.debug("Exported service %s: found Intent Filters.", serviceName)
+                # log.debug("Exported service %s: found Intent Filters.", serviceName)
                 self.exportedServices.append(serviceName)
 
     # Run the functions that extract the exported components.
     def extractExportedComponents(self):
         self.extractExportedActivities()
+        self.analyseExportedActivities()
         self.extractExportedReceivers()
         self.extractExportedProviders()
+        self.analyseExportedProviders()
         self.extractExportedServices()
 
     # Determine if path is in the exclude paths configured in the config file.
@@ -505,6 +502,7 @@ class DroidStatX:
     def get_analysis(self):
         attrs = [
             "permissions",
+            # "permissionProtectionLevels",
             "exportedActivities",
             "exportedReceivers",
             "exportedProviders",

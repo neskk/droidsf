@@ -96,9 +96,13 @@ if __name__ == '__main__':
         log.exception("Unable to setup workspace environment: %s", e)
         sys.exit(1)
 
-    droidsf.config.init(args)
-    apk = droidsf.apk.APK(args)
+    if not os.path.isfile(args.apk_file):
+        log.critical("Unable to open APK: %s", args.apk_file)
+        sys.exit(1)
 
+    droidsf.config.init(args)
+
+    apk = droidsf.apk.APK(args)
     if not apk.process():
         log.critical("Failed to process APK: %s", args.apk_file)
         sys.exit(1)

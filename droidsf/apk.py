@@ -24,7 +24,8 @@ class APK(object):
     def process(self):
         log.info("Parsing APK: %s", self.apk_file)
         self.apk = apk.APK(self.apk_file)
-        self.output_name = self.apk.get_package() + "_" + self.apk.get_androidversion_code()
+        app_version = self.apk.get_androidversion_code() or self.apk.get_androidversion_name() or "1"
+        self.output_name = self.apk.get_package() + "_" + app_version
         self.output_path = os.path.join(self.args.output_path, self.output_name)
 
         if not self.baksmali():
