@@ -22,6 +22,9 @@ URL_ENJARIFY_LATEST = "https://api.github.com/repos/neskk/enjarify/releases/late
 URL_DEX2JAR_RELEASES = "https://api.github.com/repos/pxb1988/dex2jar/releases"
 URL_DEX2JAR_PATTERN = r"\[(dex-tools-.*)\]\((.*)\)"
 
+URL_JADX_RELEASES = "https://api.github.com/repos/skylot/jadx/releases"
+URL_JADX_PATTERN = r"jadx-([\d\.]+)\.zip"
+
 def init(args):
     log.info("Initializing required tools.")
 
@@ -42,6 +45,9 @@ def init(args):
 
     output_path = download_dex2jar(args)
     setattr(args, "dex2jar_dir", output_path)
+
+    output_path = download_jadx(args)
+    setattr(args, "jadx_dir", output_path)
 
     filename = download_cfr(args)
     setattr(args, "cfr_jar", filename)
@@ -101,8 +107,41 @@ def download_dex2jar(args):
             url, args.download_path, args.force_download)
         log.debug("Downloaded: %s", filename)
 
+        # Note: use 'includes="/lib/"' to filter out other files.
         output_path = droidsf.utils.extract_zip(
-            args.download_path, filename, args.force_download, includes="/lib/")
+            args.download_path, filename, args.force_download)
+        log.debug("Extracted: %s", output_path)
+        return output_path + "/lib"
+
+    except Exception as e:
+        log.exception("Unable to download DEX2JAR: %s", e)
+        sys.exit(1)
+
+def download_jadx(args):
+    log.debug("Downloading latest JADX...")
+    try:
+        data = droidsf.utils.get_json(URL_JADX_RELEASES, args.cache_path)
+        release = data[0]
+        tag_name = release["tag_name"]
+        regex = re.compile(URL_JADX_PATTERN)
+
+        url = ""
+        for asset in release["assets"]:
+            if re.search(regex, asset["name"]):
+                url = asset["browser_download_url"]
+                break
+
+        if not url:
+            log.critical("Unable to find JADX download link.")
+            sys.exit(1)
+
+        filename = droidsf.utils.download_file(
+            url, args.download_path, args.force_download)
+        log.debug("Downloaded: %s", filename)
+
+        # Note: use 'includes="/lib/"' to filter out other files.
+        output_path = droidsf.utils.extract_zip(
+            args.download_path, filename, args.force_download)
         log.debug("Extracted: %s", output_path)
         return output_path + "/lib"
 

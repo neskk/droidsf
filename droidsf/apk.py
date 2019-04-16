@@ -31,14 +31,17 @@ class APK(object):
         if not self.baksmali():
             return False
 
-        if not self.args.decompile:
-            log.debug("APK decompilation is disabled.")
-        else:
+        if self.args.decompiler == "standard":
             if not self.dex_convert():
                 return False
 
             if not self.jar_decompile():
                 return False
+        elif self.args.decompiler == "jadx":
+            if not self.jadx_decompile():
+                return False
+        else:
+            log.debug("APK decompilation is disabled.")
 
         return True
 
@@ -54,7 +57,7 @@ class APK(object):
 
         log.info("Baksmaling DEX files")
         apktool_path = os.path.join(self.args.download_path, self.args.apktool_jar)
-        cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", apktool_path, "d", "-b", "-f", "--frame-path", self.args.cache_path, self.args.apk_file, "-o", self.output_path])
+        cmd = Subprocess(["java", self.args.java_xms, self.args.java_xmx, "-jar", apktool_path, "d", "-b", "-f", "--frame-path", self.args.cache_path, self.args.apk_file, "-o", self.output_path])
 
         if not cmd.success:
             log.error("Apktool failed to decompile APK: %s", self.apk_file)
@@ -92,7 +95,7 @@ class APK(object):
 
         elif self.args.dex_converter == "dex2jar":
             dex2jar_path = os.path.join(self.args.download_path, self.args.dex2jar_dir + "/*")
-            cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-cp", dex2jar_path, "com.googlecode.dex2jar.tools.Dex2jarCmd", "-f", self.args.apk_file, "-o", output_path])
+            cmd = Subprocess(["java", self.args.java_xms, self.args.java_xmx, "-cp", dex2jar_path, "com.googlecode.dex2jar.tools.Dex2jarCmd", "-f", self.args.apk_file, "-o", output_path])
             if cmd.success:
                 self.jar_file = output_path
                 return True
@@ -114,16 +117,35 @@ class APK(object):
         log.info("Converting JAR to Java...")
         if self.args.java_decompiler == "cfr":
             cfr_path = os.path.join(self.args.download_path, self.args.cfr_jar)
-            cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", cfr_path, "org.benf.cfr.reader.Main", self.jar_file, "--outputdir", output_path, "--caseinsensitivefs", "true", "--silent", "true"])
+            cmd = Subprocess(["java", self.args.java_xms, self.args.java_xmx, "-jar", cfr_path, "org.benf.cfr.reader.Main", self.jar_file, "--outputdir", output_path, "--caseinsensitivefs", "true", "--silent", "true"])
             if cmd.success:
                 self.src_path = output_path
                 return True
 
         elif self.args.java_decompiler == "procyon":
             procyon_path = os.path.join(self.args.download_path, self.args.procyon_jar)
-            cmd = Subprocess(["java", "-Xms128m", "-Xmx1024m", "-jar", procyon_path, "com.strobel.decompiler.DecompilerDriver", self.jar_file, "--output-directory", output_path])
+            cmd = Subprocess(["java", self.args.java_xms, self.args.java_xmx, "-jar", procyon_path, "com.strobel.decompiler.DecompilerDriver", self.jar_file, "--output-directory", output_path])
             if cmd.success:
                 self.src_path = output_path
                 return True
+
+        return False
+
+    def jadx_decompile(self):
+        output_path = os.path.join(self.output_path, "src-jadx")
+
+        if not self.args.force and os.path.isdir(output_path) and len(os.listdir(output_path)) > 0:
+            log.info("Skipped decompilation with JADX, found previous output.")
+            self.src_path = output_path
+            return True
+
+        jadx_path = os.path.join(self.args.download_path, self.args.jadx_dir + "/*")
+
+        log.info("Decompiling APK with JADX...")
+        # JADX usage: https://github.com/skylot/jadx#usage
+        cmd = Subprocess(["java", self.args.java_xms, self.args.java_xmx, "-cp", jadx_path, "jadx.cli.JadxCLI", self.args.apk_file, "-d", output_path, "-j", "1"], parse=False)
+        if cmd.success:
+            self.src_path = output_path
+            return True
 
         return False

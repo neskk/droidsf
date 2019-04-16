@@ -79,9 +79,12 @@ def get_args():
     p.add_argument("-a", "--apk-file",
                    required=True,
                    help="Path to APK to analyse.")
-    p.add_argument("-d", "--decompile",
-                   help="Decompile APK DEX into Java source code.",
-                   action="store_true")
+    p.add_argument("-d", "--decompiler",
+                   help=("Decompile APK to Java source code. "
+                         "Standard method uses '--dex-converter' and "
+                         "'--java-decompiler'. Default: disabled"),
+                   default="disabled",
+                   choices=("disabled", "standard", "jadx"))
     p.add_argument("--force",
                    help="Overrides previously generated files.",
                    action="store_true")
@@ -113,7 +116,7 @@ def get_args():
                    default="procyon",
                    choices=("cfr", "procyon"))
     p.add_argument("--frida-version",
-                   help=("Specify which frida version to use."
+                   help=("Specify which frida version to use. "
                          "Note: must match python package version."),
                    default="12.4.4")
     p.add_argument("-s", "--script",
@@ -137,12 +140,23 @@ def get_args():
     p.add_argument("--android_sdk",
                    help="Directory that contains Android SDK executables.",
                    env_var="ANDROID_SDK")
+    p.add_argument("--java-xms",
+                   help=("Specify initial RAM allocated for Java VM. "
+                         "Default: 128m"),
+                   default="128m")
+    p.add_argument("--java-xmx",
+                   help=("Specify maximum RAM allocated for Java VM. "
+                         "Default: 1024m"),
+                   default="1024m")
 
     args = p.parse_args()
 
     # Helper attributes
     setattr(args, "cwd", os.path.realpath(os.path.join(cwd, "../")))
     setattr(args, "apk_file", os.path.abspath(args.apk_file))
+    setattr(args, "java_xms", "-Xms" + args.java_xms)
+    setattr(args, "java_xmx", "-Xms" + args.java_xmx)
+    # setattr(args, "java_opts", ["-Xms" + args.java_xms, "-Xmx" + args.java_xmx])
 
     # Print configuration
     if args.verbose:

@@ -84,11 +84,25 @@ def adb_kill_frida():
     if cmd.success:
         log.info("Killed frida-server on device.")
 
+def adb_list_devices():
+    cmd = Subprocess(["adb", "devices"])
+    if cmd.success:
+        device_list = []
+        for line in cmd.out.split('\n'):
+            line = line.strip()
+            if line.startswith("*"):
+                continue
+            if line.startswith("List of devices attached"):
+                continue
+            device_list.append(line)
+
+        return device_list
+
 def adb_list_installed_packages():
     inputs = ["sh -c 'cmd package list packages -f'"]
-    cmd = SubprocessShell(["adb", "shell"], inputs)
+    cmd = SubprocessShell(["adb", "shell"], inputs, parse=False)
     if cmd.success:
-        package_list = [a.split("=")[-1] for a in cmd.out.split('\n')]
+        package_list = [l.split("=")[-1] for l in cmd.out.split('\n')]
         return package_list
 
 def adb_install_apk(apk_file):
@@ -127,21 +141,21 @@ if __name__ == '__main__':
         droidstatx = DroidStatX(args, apk)
         log.info("Analysed %s with DroidStat-X.", app_package)
 
-    installed_packages = []
     try:
-        installed_packages = adb_list_installed_packages()
-        if len(installed_packages) < 3:
-            log.critical("Failed to communicate with device using ADB.")
+        devices = adb_list_devices()
+        if not devices:
+            log.critical("Unable to find any device through ADB.")
             sys.exit(1)
-    except Exception as e:
-        log.exception("Unable to fetch installed apps from device: %s", e)
-        sys.exit(1)
 
-    if app_package not in installed_packages:
-        log.info("Could not find %s on device, installing APK...", app_package)
-        keyword = input("Proceed with APK install on device? [Yn]\n")
-        if keyword != "n":
-            adb_install_apk(args.apk_file)
+        if app_package not in adb_list_installed_packages():
+            log.info("Could not find %s on device, installing APK...", app_package)
+            keyword = input("Proceed with APK install on device? [Yn]\n")
+            if keyword != "n":
+                adb_install_apk(args.apk_file)
+
+    except Exception as e:
+        log.exception("Failed device setup using ADB: %s", e)
+        sys.exit(1)
 
     keyword = input("Proceed with Frida dynamic analysis? [yN]\n")
     if keyword != "y":

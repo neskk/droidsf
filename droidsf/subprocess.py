@@ -9,8 +9,9 @@ import time
 log = logging.getLogger(__name__)
 
 class Subprocess(object):
-    def __init__(self, cmd):
+    def __init__(self, cmd, parse=True):
         self.cmd = " ".join(cmd)
+        self.parse = parse
         self.success = False
         try:
             self.p = subprocess.Popen(
@@ -27,6 +28,9 @@ class Subprocess(object):
     def parse_output(self):
         self.out = self.out.strip()
         self.err = self.err.strip()
+
+        if not self.parse:
+            return True
 
         res = ""
         if self.err:
@@ -46,8 +50,9 @@ class Subprocess(object):
 
 
 class SubprocessShell(Subprocess):
-    def __init__(self, cmd, inputs=[], persists=False):
+    def __init__(self, cmd, inputs=[], parse=False, persists=False):
         self.cmd = " ".join(cmd)
+        self.parse = parse
         self.success = False
         try:
             self.p = subprocess.Popen(
