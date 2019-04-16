@@ -140,9 +140,11 @@ def get_args():
 
     args = p.parse_args()
 
-    # Helper parameters
+    # Helper attributes
     setattr(args, "cwd", os.path.realpath(os.path.join(cwd, "../")))
+    setattr(args, "apk_file", os.path.abspath(args.apk_file))
 
+    # Print configuration
     if args.verbose:
         d = vars(args)
         for k, v in d.items():

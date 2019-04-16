@@ -3,6 +3,7 @@
 import logging
 import re
 import sys
+import shutil
 
 import droidsf.utils
 
@@ -22,9 +23,17 @@ URL_DEX2JAR_RELEASES = "https://api.github.com/repos/pxb1988/dex2jar/releases"
 URL_DEX2JAR_PATTERN = r"\[(dex-tools-.*)\]\((.*)\)"
 
 def init(args):
+    log.info("Initializing required tools.")
 
-    log.info("Initializing required tools...")
-    # Helper parameters
+    if shutil.which("java") is None:
+        log.critical("Unable to find 'java' executable on environment.")
+        sys.exit(1)
+
+    if shutil.which("adb") is None:
+        log.critical("Unable to find 'adb' executable on environment.")
+        sys.exit(1)
+
+    # Helper attributes
     filename = download_apktool(args)
     setattr(args, "apktool_jar", filename)
 

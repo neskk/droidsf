@@ -24,9 +24,9 @@ def parse_class_list(message, data):
     if message['type'] == 'send':
         app_class_list.append(message['payload'])
 
-def export_class_list(args):
-    filename = args.apk + "-class_list.txt"
-    droidsf.utils.export_file(args.output_path, filename, app_class_list)
+def export_class_list(apk):
+    filename = apk.output_name + "-class_list.txt"
+    droidsf.utils.export_file(apk.output_path, filename, app_class_list)
     log.info("Exported class list: %s", filename)
 
 
@@ -84,6 +84,17 @@ def adb_kill_frida():
     if cmd.success:
         log.info("Killed frida-server on device.")
 
+def adb_list_installed_packages():
+    inputs = ["sh -c 'cmd package list packages -f'"]
+    cmd = SubprocessShell(["adb", "shell"], inputs)
+    if cmd.success:
+        package_list = [a.split("=")[-1] for a in cmd.out.split('\n')]
+        return package_list
+
+def adb_install_apk(apk_file):
+    cmd = Subprocess(["adb", "install", apk_file])
+    if cmd.success:
+        log.info("APK %s was installed on device.", os.path.basename(apk_file))
 
 if __name__ == '__main__':
     print(droidsf.utils.HEADER)
@@ -109,24 +120,53 @@ if __name__ == '__main__':
 
     # DroidSF framework initialized -------------------------------------------
 
-    droidstatx = DroidStatX(args, apk)
-    app_package = droidstatx.apk.get_package()
-    log.info("Analysed %s with DroidStatX.", app_package)
+    app_package = apk.apk.get_package()
 
-    sys.exit(0)
+    keyword = input("Proceed with static analysis? [yN]\n")
+    if keyword == "y":
+        droidstatx = DroidStatX(args, apk)
+        log.info("Analysed %s with DroidStat-X.", app_package)
+
+    installed_packages = []
+    try:
+        installed_packages = adb_list_installed_packages()
+        if len(installed_packages) < 3:
+            log.critical("Failed to communicate with device using ADB.")
+            sys.exit(1)
+    except Exception as e:
+        log.exception("Unable to fetch installed apps from device: %s", e)
+        sys.exit(1)
+
+    if app_package not in installed_packages:
+        log.info("Could not find %s on device, installing APK...", app_package)
+        keyword = input("Proceed with APK install on device? [Yn]\n")
+        if keyword != "n":
+            adb_install_apk(args.apk_file)
+
+    keyword = input("Proceed with Frida dynamic analysis? [yN]\n")
+    if keyword != "y":
+        sys.exit(0)
+
     adb = adb_launch_frida(args)
 
     try:
         log.debug("Frida found devices: %s", frida.enumerate_devices())
-        cwd = os.path.dirname(os.path.realpath(__file__))
         device = frida.get_usb_device(timeout=5)
         log.info("Frida found USB device!")
-        log.debug("Frida found applications: %s", device.enumerate_applications())
+
+        found = False
+        for app in device.enumerate_applications():
+            if app.identifier == app_package:
+                found = True
+                log.debug("Frida found application: %s", app_package)
+                break
+
+        if not found:
+            log.error("Frida could not find %s installed on device.", app_package)
 
         # TODO: Allow manual selection of device if multiple options are available
-        # TODO: Push APK to device using adb.
 
-        pid = device.spawn([app_package])
+        pid = device.spawn([app_package], timeout=10)
         log.info("Frida spawned application: %s (PID: %s).", app_package, pid)
         session = device.attach(pid)
         log.info("Frida attached to %s (PID: %s).", app_package, pid)
@@ -159,7 +199,7 @@ if __name__ == '__main__':
             keyword = input("Press 'X' + 'ENTER' to terminate.\n")
 
         if args.script in on_resume_handlers:
-            on_resume_handlers[args.script](args)
+            on_resume_handlers[args.script](apk)
         # api = script.exports
         # print("api.hello() =>", api.hello())
         # api.fail_please()

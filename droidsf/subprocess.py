@@ -11,16 +11,23 @@ log = logging.getLogger(__name__)
 class Subprocess(object):
     def __init__(self, cmd):
         self.cmd = " ".join(cmd)
-        self.p = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True)
-        self.out, self.err = self.p.communicate()
-
-        self.success = self.parse_output()
+        self.success = False
+        try:
+            self.p = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True)
+            self.out, self.err = self.p.communicate()
+            self.success = self.parse_output()
+        except Exception as e:
+            log.error("Process terminated unexpectedly: %s", e)
+            self.success = False
 
     def parse_output(self):
+        self.out = self.out.strip()
+        self.err = self.err.strip()
+
         res = ""
         if self.err:
             res += "[ stderr from: " + self.cmd + " ]\n" + self.err
@@ -40,6 +47,7 @@ class Subprocess(object):
 
 class SubprocessShell(Subprocess):
     def __init__(self, cmd, inputs=[], persists=False):
+        self.cmd = " ".join(cmd)
         self.success = False
         try:
             self.p = subprocess.Popen(
