@@ -13,6 +13,7 @@ from droidsf.subprocess import Subprocess, SubprocessShell
 import droidsf.config
 import droidsf.utils
 import droidsf.apk
+import droidsf.adb
 
 log = logging.getLogger('droidsf')
 
@@ -47,69 +48,6 @@ on_resume_handlers = {
 }
 
 
-def adb_launch_frida(args):
-    frida_server_path = os.path.join(args.download_path, args.frida_server_bin)
-
-    if not os.path.isfile(frida_server_path):
-        log.critical("Unable to find %s on workspace. Run: python install.py")
-        sys.exit(1)
-
-    cmd = Subprocess(["adb", "root"])
-
-    time.sleep(0.5)
-    cmd = Subprocess(["adb", "push", frida_server_path, "/data/local/tmp/frida-server"])
-    if cmd.success:
-        log.info("Pushed frida-server to device.")
-    else:
-        log.critical("Unable to push frida-server to device.")
-        sys.exit(1)
-
-    time.sleep(0.5)
-    inputs = [
-        "chmod 755 /data/local/tmp/frida-server",
-        "/data/local/tmp/frida-server &"
-    ]
-    cmd = SubprocessShell(["adb", "shell"], inputs, persists=True)
-
-    if cmd.success:
-        log.info("Launched frida-server on device.")
-    else:
-        log.critical("Unable to launch frida-server on device.")
-        sys.exit(1)
-
-
-def adb_kill_frida():
-    inputs = ["killall -s SIGKILL frida-server frida-helper-32"]
-    cmd = SubprocessShell(["adb", "shell"], inputs)
-    if cmd.success:
-        log.info("Killed frida-server on device.")
-
-def adb_list_devices():
-    cmd = Subprocess(["adb", "devices"])
-    if cmd.success:
-        device_list = []
-        for line in cmd.out.split('\n'):
-            line = line.strip()
-            if line.startswith("*"):
-                continue
-            if line.startswith("List of devices attached"):
-                continue
-            device_list.append(line)
-
-        return device_list
-
-def adb_list_installed_packages():
-    inputs = ["sh -c 'cmd package list packages -f'"]
-    cmd = SubprocessShell(["adb", "shell"], inputs, parse=False)
-    if cmd.success:
-        package_list = [l.split("=")[-1] for l in cmd.out.split('\n')]
-        return package_list
-
-def adb_install_apk(apk_file):
-    cmd = Subprocess(["adb", "install", apk_file])
-    if cmd.success:
-        log.info("APK %s was installed on device.", os.path.basename(apk_file))
-
 if __name__ == '__main__':
     print(droidsf.utils.HEADER)
     args = droidsf.utils.get_args()
@@ -141,46 +79,42 @@ if __name__ == '__main__':
         droidstatx = DroidStatX(args, apk)
         log.info("Analysed %s with DroidStat-X.", app_package)
 
-    try:
-        devices = adb_list_devices()
-        if not devices:
-            log.critical("Unable to find any device through ADB.")
-            sys.exit(1)
-
-        if app_package not in adb_list_installed_packages():
-            log.info("Could not find %s on device, installing APK...", app_package)
-            keyword = input("Proceed with APK install on device? [Yn]\n")
-            if keyword != "n":
-                adb_install_apk(args.apk_file)
-
-    except Exception as e:
-        log.exception("Failed device setup using ADB: %s", e)
-        sys.exit(1)
-
     keyword = input("Proceed with Frida dynamic analysis? [yN]\n")
     if keyword != "y":
         sys.exit(0)
 
-    adb = adb_launch_frida(args)
+    adb = droidsf.adb.ADB(args)
+
+    adb.select_device()
+    adb.launch_adb_server()
+    adb.install_apk(app_package)
+    adb.launch_frida_server()
 
     try:
-        log.debug("Frida found devices: %s", frida.enumerate_devices())
-        device = frida.get_usb_device(timeout=5)
-        log.info("Frida found USB device!")
+        found = False
+        for device in frida.enumerate_devices():
+            if device.id == adb.device_id:
+                found = True
+                log.debug("Frida found device: %s", device)
+                break
+
+        if not found:
+            log.error("Frida could not find device: %s", adb.device_id)
+
+        device = frida.get_device(id=adb.device_id)
+        # device = frida.get_usb_device(timeout=5)
 
         found = False
         for app in device.enumerate_applications():
             if app.identifier == app_package:
                 found = True
-                log.debug("Frida found application: %s", app_package)
+                log.debug("Frida found application: %s", app)
                 break
 
         if not found:
-            log.error("Frida could not find %s installed on device.", app_package)
+            log.error("Frida could not find application: %s", app_package)
 
-        # TODO: Allow manual selection of device if multiple options are available
-
-        pid = device.spawn([app_package], timeout=10)
+        pid = device.spawn([app_package])
         log.info("Frida spawned application: %s (PID: %s).", app_package, pid)
         session = device.attach(pid)
         log.info("Frida attached to %s (PID: %s).", app_package, pid)
@@ -208,9 +142,10 @@ if __name__ == '__main__':
 
         # Prevent the python script from terminating
         # sys.stdin.read()
-        keyword = input("Press 'X' + 'ENTER' to terminate.\n")
-        while keyword != "x":
-            keyword = input("Press 'X' + 'ENTER' to terminate.\n")
+        while True:
+            keyword = input("Type 'x' to terminate instrumentation.\n")
+            if keyword.lower() == "x":
+                break
 
         if args.script in on_resume_handlers:
             on_resume_handlers[args.script](apk)
@@ -225,4 +160,5 @@ if __name__ == '__main__':
     except Exception as e:
         log.exception("Frida failed to execute: %s", e)
 
-    adb_kill_frida()
+    adb.kill_frida_server()
+    adb.kill_adb_server()

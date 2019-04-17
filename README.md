@@ -6,6 +6,15 @@
 - Java JDK
 - Android Studio + Android SDK
 
+## Included Tools
+- Apktool - https://github.com/iBotPeaches/Apktool
+- Enjarify - https://github.com/Storyyeller/enjarify
+- Dex2jar - https://github.com/pxb1988/dex2jar
+- JADX - https://github.com/skylot/jadx
+- CFR - http://www.benf.org/other/cfr/
+- Procyon - https://bitbucket.org/mstrobel/procyon
+- Frida - https://www.frida.re/
+
 ## Setup - Windows
 
 ### 1. Install Java Development Kit 8 - [Download](https://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html)
@@ -87,17 +96,19 @@ py -3 -m pip install -r requirements.txt
 ### Usage
 
 ```
-usage: script.py [-h] [-cf CONFIG] [-v] -a APK_FILE [-d] [--force]
-                 [--force-download] [--cache-path CACHE_PATH]
-                 [--download-path DOWNLOAD_PATH] [--log-path LOG_PATH]
-                 [--output-path OUTPUT_PATH] [--arch {arm,arm64,x86,x86_64}]
+usage: script.py [-h] [-cf CONFIG] [-v] -a APK_FILE
+                 [-d {disabled,standard,jadx}] [--force] [--force-download]
+                 [--cache-path CACHE_PATH] [--download-path DOWNLOAD_PATH]
+                 [--log-path LOG_PATH] [--output-path OUTPUT_PATH]
+                 [--arch {arm,arm64,x86,x86_64}]
                  [--dex-converter {enjarify,dex2jar}]
                  [--java-decompiler {cfr,procyon}]
                  [--frida-version FRIDA_VERSION] [-s SCRIPT]
                  [--file-exclusions FILE_EXCLUSIONS]
                  [--directory-exclusions DIRECTORY_EXCLUSIONS]
                  [--custom-checks CUSTOM_CHECKS] [--java_home JAVA_HOME]
-                 [--android_sdk ANDROID_SDK]
+                 [--android_sdk ANDROID_SDK] [--java-xms JAVA_XMS]
+                 [--java-xmx JAVA_XMX]
 ```
 Args that start with '--' (eg. -v) can also be set in a config file (config/config.ini or specified via -cf).
 
@@ -105,14 +116,17 @@ Config file syntax allows: key=value, flag=true, stuff=[a,b,c] (for details, see
 If an argument is specified in more than one place, then commandline values override config file values which override defaults.
 
 ```
-arguments:
+optional arguments:
   -h, --help            show this help message and exit
   -cf CONFIG, --config CONFIG
                         Set configuration file.
   -v, --verbose         Run in the verbose mode.
   -a APK_FILE, --apk-file APK_FILE
                         Path to APK to analyse.
-  -d, --decompile       Decompile APK DEX into Java source code.
+  -d {disabled,standard,jadx}, --decompiler {disabled,standard,jadx}
+                        Decompile APK to Java source code. Standard method
+                        uses '--dex-converter' and '--java-decompiler'.
+                        Default: disabled
   --force               Overrides previously generated files.
   --force-download      Overrides previously downloaded files.
   --cache-path CACHE_PATH
@@ -129,7 +143,7 @@ arguments:
   --java-decompiler {cfr,procyon}
                         JAR to Java decompiler. Default: procyon
   --frida-version FRIDA_VERSION
-                        Specify which frida version to use.Note: must match
+                        Specify which frida version to use. Note: must match
                         python package version.
   -s SCRIPT, --script SCRIPT
                         Script to execute.
@@ -145,6 +159,10 @@ arguments:
   --android_sdk ANDROID_SDK
                         Directory that contains Android SDK executables. [env
                         var: ANDROID_SDK]
+  --java-xms JAVA_XMS   Specify initial RAM allocated for Java VM. Default:
+                        128m
+  --java-xmx JAVA_XMX   Specify maximum RAM allocated for Java VM. Default:
+                        1024m
 ```
 
 ## Credits
@@ -162,6 +180,3 @@ https://github.com/11x256/frida-android-examples
 http://asvid.github.io/android-frida-hacking
 
 https://github.com/b-mueller/frida-detection-demo
-
-- Dex2jar - https://github.com/pxb1988/dex2jar
-- CFR - http://www.benf.org/other/cfr/
