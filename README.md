@@ -97,17 +97,18 @@ py -3 -m pip install -r requirements.txt
 
 ```
 usage: script.py [-h] [-cf CONFIG] [-v] -a APK_FILE
-                 [-d {disabled,standard,jadx}] [--force] [--force-download]
-                 [--cache-path CACHE_PATH] [--download-path DOWNLOAD_PATH]
-                 [--log-path LOG_PATH] [--output-path OUTPUT_PATH]
-                 [--arch {arm,arm64,x86,x86_64}]
-                 [--dex-converter {enjarify,dex2jar}]
+                 [-d {disabled,standard,jadx}] [-s SCRIPT] [--force]
+                 [--force-download] [--no-static-analysis]
+                 [--no-dynamic-analysis] [--cache-path CACHE_PATH]
+                 [--download-path DOWNLOAD_PATH] [--log-path LOG_PATH]
+                 [--output-path OUTPUT_PATH] [--arch {arm,arm64,x86,x86_64}]
+                 [--device-id DEVICE_ID] [--dex-converter {dex2jar,enjarify}]
                  [--java-decompiler {cfr,procyon}]
-                 [--frida-version FRIDA_VERSION] [-s SCRIPT]
+                 [--frida-version FRIDA_VERSION]
                  [--file-exclusions FILE_EXCLUSIONS]
                  [--directory-exclusions DIRECTORY_EXCLUSIONS]
-                 [--custom-checks CUSTOM_CHECKS] [--java_home JAVA_HOME]
-                 [--android_sdk ANDROID_SDK] [--java-xms JAVA_XMS]
+                 [--custom-checks CUSTOM_CHECKS] [--java-home JAVA_HOME]
+                 [--android-sdk ANDROID_SDK] [--java-xms JAVA_XMS]
                  [--java-xmx JAVA_XMX]
 ```
 Args that start with '--' (eg. -v) can also be set in a config file (config/config.ini or specified via -cf).
@@ -119,16 +120,22 @@ If an argument is specified in more than one place, then commandline values over
 optional arguments:
   -h, --help            show this help message and exit
   -cf CONFIG, --config CONFIG
-                        Set configuration file.
+                        Configuration file.
   -v, --verbose         Run in the verbose mode.
   -a APK_FILE, --apk-file APK_FILE
-                        Path to APK to analyse.
+                        APK file to analyse.
   -d {disabled,standard,jadx}, --decompiler {disabled,standard,jadx}
                         Decompile APK to Java source code. Standard method
                         uses '--dex-converter' and '--java-decompiler'.
                         Default: disabled
+  -s SCRIPT, --script SCRIPT
+                        Instrumentation script to execute. Default:
+                        class_list.js
   --force               Overrides previously generated files.
   --force-download      Overrides previously downloaded files.
+  --no-static-analysis  Skip static analysis checks.
+  --no-dynamic-analysis
+                        Skip dynamic analysis checks.
   --cache-path CACHE_PATH
                         Directory where temporary files are saved.
   --download-path DOWNLOAD_PATH
@@ -138,25 +145,27 @@ optional arguments:
                         Directory where generated files are saved.
   --arch {arm,arm64,x86,x86_64}
                         Android device architecture. Default: x86
-  --dex-converter {enjarify,dex2jar}
+  --device-id DEVICE_ID
+                        Specify a device ID used by ADB. Use '*' to choose the
+                        first device available. Default: list devices
+                        interactively
+  --dex-converter {dex2jar,enjarify}
                         DEX to JAR converter. Default: enjarify
   --java-decompiler {cfr,procyon}
                         JAR to Java decompiler. Default: procyon
   --frida-version FRIDA_VERSION
                         Specify which frida version to use. Note: must match
                         python package version.
-  -s SCRIPT, --script SCRIPT
-                        Script to execute.
   --file-exclusions FILE_EXCLUSIONS
-                        Ignore these paths/files on static analysis
+                        Ignore these paths/files on static analysis.
   --directory-exclusions DIRECTORY_EXCLUSIONS
                         Ignore these directories on static analysis.
   --custom-checks CUSTOM_CHECKS
                         Additional checks to smali code.
-  --java_home JAVA_HOME
+  --java-home JAVA_HOME
                         Directory that contains Java executables. [env var:
                         JAVA_HOME]
-  --android_sdk ANDROID_SDK
+  --android-sdk ANDROID_SDK
                         Directory that contains Android SDK executables. [env
                         var: ANDROID_SDK]
   --java-xms JAVA_XMS   Specify initial RAM allocated for Java VM. Default:

@@ -39,6 +39,15 @@ class ADB(object):
                 sys.exit(1)
 
             while True:
+
+                if self.args.device_id == "*":
+                    self.device_id = devices[0]
+                    break
+
+                if self.args.device_id in devices:
+                    self.device_id = self.args.device_id
+                    break
+
                 print("Available devices found in ADB:")
                 for idx, device in enumerate(devices):
                     print("{}. Device: {}".format(idx + 1, device))

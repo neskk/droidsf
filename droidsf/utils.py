@@ -72,24 +72,34 @@ def get_args():
 
     p.add_argument("-cf", "--config",
                    is_config_file=True,
-                   help="Set configuration file.")
+                   help="Configuration file.")
     p.add_argument("-v", "--verbose",
                    help="Run in the verbose mode.",
                    action="store_true")
     p.add_argument("-a", "--apk-file",
                    required=True,
-                   help="Path to APK to analyse.")
+                   help="APK file to analyse.")
     p.add_argument("-d", "--decompiler",
                    help=("Decompile APK to Java source code. "
                          "Standard method uses '--dex-converter' and "
                          "'--java-decompiler'. Default: disabled"),
                    default="disabled",
                    choices=("disabled", "standard", "jadx"))
+    p.add_argument("-s", "--script",
+                   help=("Instrumentation script to execute. "
+                         "Default: class_list.js"),
+                   default="class_list.js")
     p.add_argument("--force",
                    help="Overrides previously generated files.",
                    action="store_true")
     p.add_argument("--force-download",
                    help="Overrides previously downloaded files.",
+                   action="store_true")
+    p.add_argument("--no-static-analysis",
+                   help="Skip static analysis checks.",
+                   action="store_true")
+    p.add_argument("--no-dynamic-analysis",
+                   help="Skip dynamic analysis checks.",
                    action="store_true")
     p.add_argument("--cache-path",
                    help="Directory where temporary files are saved.",
@@ -107,10 +117,15 @@ def get_args():
                    help="Android device architecture. Default: x86",
                    default="x86",
                    choices=("arm", "arm64", "x86", "x86_64"))
+    p.add_argument("--device-id",
+                   help=("Specify a device ID used by ADB. "
+                         "Use '*' to choose the first device available. "
+                         "Default: list devices interactively"),
+                   default="")
     p.add_argument("--dex-converter",
                    help="DEX to JAR converter. Default: enjarify",
                    default="enjarify",
-                   choices=("enjarify", "dex2jar"))
+                   choices=("dex2jar", "enjarify"))
     p.add_argument("--java-decompiler",
                    help="JAR to Java decompiler. Default: procyon",
                    default="procyon",
@@ -119,11 +134,8 @@ def get_args():
                    help=("Specify which frida version to use. "
                          "Note: must match python package version."),
                    default="12.4.4")
-    p.add_argument("-s", "--script",
-                   help="Script to execute.",
-                   default="class_list.js")
     p.add_argument("--file-exclusions",
-                   help="Ignore these paths/files on static analysis",
+                   help="Ignore these paths/files on static analysis.",
                    default=[".css", ".png", ".jpg", "jpeg", ".gif", "res/anim", "res/color", "res/drawable", "res/menu", "res/layout", "assets/fonts", "AndroidManifest.xml", "resources.arsc"],
                    action="append")
     p.add_argument("--directory-exclusions",
@@ -134,10 +146,10 @@ def get_args():
                    help="Additional checks to smali code.",
                    default=[],
                    action="append")
-    p.add_argument("--java_home",
+    p.add_argument("--java-home",
                    help="Directory that contains Java executables.",
                    env_var="JAVA_HOME")
-    p.add_argument("--android_sdk",
+    p.add_argument("--android-sdk",
                    help="Directory that contains Android SDK executables.",
                    env_var="ANDROID_SDK")
     p.add_argument("--java-xms",

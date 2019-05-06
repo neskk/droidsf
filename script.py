@@ -74,13 +74,12 @@ if __name__ == '__main__':
 
     app_package = apk.apk.get_package()
 
-    keyword = input("Proceed with static analysis? [yN]\n")
-    if keyword == "y":
+    if not args.no_static_analysis:
         droidstatx = DroidStatX(args, apk)
         log.info("Analysed %s with DroidStat-X.", app_package)
 
-    keyword = input("Proceed with Frida dynamic analysis? [yN]\n")
-    if keyword != "y":
+    if args.no_dynamic_analysis:
+        log.info("Skipped Frida dynamic analysis.")
         sys.exit(0)
 
     adb = droidsf.adb.ADB(args)
@@ -141,6 +140,7 @@ if __name__ == '__main__':
         time.sleep(1)  # Without it Java.perform silently fails
 
         # Prevent the python script from terminating
+        # TODO: add a timeout to allow fully automated testing
         # sys.stdin.read()
         while True:
             keyword = input("Type 'x' to terminate instrumentation.\n")
