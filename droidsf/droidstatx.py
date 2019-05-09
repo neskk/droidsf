@@ -101,7 +101,8 @@ class DroidStatX:
     packageName = ""
     debuggable = False
     allowBackup = False
-    certificate = ""
+    certificates = []
+    signatureFiles = []
 
     baksmaliPaths = []
     smaliChecks = None
@@ -131,6 +132,8 @@ class DroidStatX:
         log.info("Extracting Permissions")
         self.extractPermissions()
         self.extractPermissionProtectionLevels()
+        log.info("Extracting Certificates")
+        self.extractCertificates()
         log.info("Extracting Files")
         self.extractFiles()
 
@@ -241,8 +244,34 @@ class DroidStatX:
             # log.debug("Found Protection Level for Permission : %s - %s", name, level_name)
             self.permissionProtectionLevels[name] = level_name
 
-    def extractCertificate(self):
-        self.certificate = self.apk.get_signature_name()
+    # Extract certificates used and signature file names
+    def extractCertificates(self):
+        if self.apk.is_signed():
+            # Test if signed v1 or v2 or both
+            if self.apk.is_signed_v1() and self.apk.is_signed_v2():
+                scheme_used = "v1+v2"
+            elif self.apk.is_signed_v1():
+                scheme_used = "v1"
+            else:
+                scheme_used = "v2"
+
+        # Iterate over all certificates
+        for cert in self.apk.get_certificates():
+            # Each cert is now a asn1crypt.x509.Certificate object
+            data = {
+                "sha1": cert.sha1.hex(),  # the sha1 fingerprint
+                "sha256": cert.sha256.hex(),  # the sha256 fingerprint
+                "issuer": cert.issuer.human_friendly,  # issuer
+                "subject": cert.subject.human_friendly,  # subject, usually the same
+                "hash_algo": cert.hash_algo,  # hash algorithm
+                "signature_algo": cert.signature_algo,  # Signature algorithm
+                "serial_number": cert.serial_number,  # Serial number
+                # "contents": cert.contents,  # The DER coded bytes of the certificate itself
+            }
+            self.certificates.append(data)
+
+        # Return the name of the first signature file found.
+        self.signatureFiles = self.apk.get_signature_names()
 
     # Create a global list of activities with the excludeFromRecents attribute
     # XXX: Checked with sweatcoin
@@ -535,7 +564,9 @@ class DroidStatX:
             "activitiesWithoutFlagSecure",
             "activitiesExtendPreferencesWithValidate",
             "activitiesExtendPreferencesWithoutValidate",
-            "cordovaPlugins"
+            "cordovaPlugins",
+            "certificates",
+            "signatureFiles"
         ]
         data = {}
         for attr in attrs:

@@ -89,6 +89,11 @@ def get_args():
                    help=("Instrumentation script to execute. "
                          "Default: class_list.js"),
                    default="class_list.js")
+    p.add_argument("-it", "--instrumentation-timeout",
+                   help=("Time in seconds for frida instrumention. "
+                         "Default: 0 (indefinitely)"),
+                   type=int,
+                   default=0)
     p.add_argument("--force",
                    help="Overrides previously generated files.",
                    action="store_true")

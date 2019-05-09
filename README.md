@@ -97,12 +97,13 @@ py -3 -m pip install -r requirements.txt
 
 ```
 usage: script.py [-h] [-cf CONFIG] [-v] -a APK_FILE
-                 [-d {disabled,standard,jadx}] [-s SCRIPT] [--force]
-                 [--force-download] [--no-static-analysis]
-                 [--no-dynamic-analysis] [--cache-path CACHE_PATH]
-                 [--download-path DOWNLOAD_PATH] [--log-path LOG_PATH]
-                 [--output-path OUTPUT_PATH] [--arch {arm,arm64,x86,x86_64}]
-                 [--device-id DEVICE_ID] [--dex-converter {dex2jar,enjarify}]
+                 [-d {disabled,standard,jadx}] [-s SCRIPT]
+                 [-it INSTRUMENTATION_TIMEOUT] [--force] [--force-download]
+                 [--no-static-analysis] [--no-dynamic-analysis]
+                 [--cache-path CACHE_PATH] [--download-path DOWNLOAD_PATH]
+                 [--log-path LOG_PATH] [--output-path OUTPUT_PATH]
+                 [--arch {arm,arm64,x86,x86_64}] [--device-id DEVICE_ID]
+                 [--dex-converter {dex2jar,enjarify}]
                  [--java-decompiler {cfr,procyon}]
                  [--frida-version FRIDA_VERSION]
                  [--file-exclusions FILE_EXCLUSIONS]
@@ -131,6 +132,9 @@ optional arguments:
   -s SCRIPT, --script SCRIPT
                         Instrumentation script to execute. Default:
                         class_list.js
+  -it INSTRUMENTATION_TIMEOUT, --instrumentation-timeout INSTRUMENTATION_TIMEOUT
+                        Time in seconds for frida instrumention. Default: 0
+                        (indefinitely)
   --force               Overrides previously generated files.
   --force-download      Overrides previously downloaded files.
   --no-static-analysis  Skip static analysis checks.
