@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import time
+from timeit import default_timer
 
 import frida
 
@@ -140,12 +141,26 @@ if __name__ == '__main__':
         time.sleep(1)  # Without it Java.perform silently fails
 
         # Prevent the python script from terminating
-        # TODO: add a timeout to allow fully automated testing
         # sys.stdin.read()
-        while True:
-            keyword = input("Type 'x' to terminate instrumentation.\n")
-            if keyword.lower() == "x":
-                break
+        try:
+            timeout = 0
+            if args.instrumentation_timeout > 0:
+                timeout = default_timer() + args.instrumentation_timeout
+                log.info("Instrumenting for %d seconds.", args.instrumentation_timeout)
+
+            while True:
+                if timeout > 0:
+                    if timeout > default_timer():
+                        time.sleep(0.5)
+                    else:
+                        break
+                else:
+                    keyword = input("Type 'x' to terminate instrumentation.\n")
+                    if keyword.lower() == "x":
+                        break
+
+        except KeyboardInterrupt:
+            log.warning("User forced instrumentation to stop.")
 
         if args.script in on_resume_handlers:
             on_resume_handlers[args.script](apk)
