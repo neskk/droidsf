@@ -1,6 +1,8 @@
 *.apk
 *.pyc
 .vscode/
+config/*
+!config/config.example.ini
 downloads/
 logs/
 output/
